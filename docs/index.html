@@ -1066,22 +1066,32 @@ python tools/create_voice_bin.py \
       const opt = select.options[select.selectedIndex];
       const sample = opt.getAttribute('data-sample');
       const player = document.getElementById('audioPlayer');
-      player.src = sample;
+      if (sample) {
+        player.src = sample;
+      }
 
-      // TỰ ĐỘNG ĐỔI CÂU VĂN TRONG TEXTAREA CHO KHỚP VỚI GIỌNG ĐỌC MẪU
-      if (VOICE_TEXTS[select.value]) {
+      // Giữ nguyên text của người dùng nếu họ đã tự nhập text!
+      // Chỉ tự động điền câu mẫu nếu ô nhập liệu đang hoàn toàn trống.
+      const inputEl = document.getElementById('inputText');
+      if (inputEl.value.trim() === '' && VOICE_TEXTS[select.value]) {
         const targetText = VOICE_TEXTS[select.value];
-        document.getElementById('inputText').value = targetText;
+        inputEl.value = targetText;
         renderSubtitlesFromText(targetText);
+      } else if (inputEl.value.trim() !== '') {
+        // Cập nhật lại phụ đề theo đúng text hiện tại của người dùng
+        renderSubtitlesFromText(inputEl.value);
       }
       
       const codeSnippet = document.getElementById('codeSnippet');
+      const currentText = (inputEl.value.trim() || "Văn bản thử nghiệm").replace(/"/g, '\\"');
       if (select.value.includes('vits')) {
-        codeSnippet.innerText = `from rust_tts_runtime import RustTTS\n\ntts = RustTTS()\ntts.speak("...", voice="huuduc_vits.onnx", output="out.mp3", generate_srt=True)`;
+        codeSnippet.innerText = `from rust_tts_runtime import RustTTS\n\ntts = RustTTS()\ntts.speak("${currentText}", voice="huuduc_vits.onnx", output="out.mp3", generate_srt=True)`;
       } else if (select.value === 'hybrid') {
-        codeSnippet.innerText = `rust_tts_runtime "..." --blend "huuduc:0.7,kimoanh:0.3" --output out.wav`;
+        codeSnippet.innerText = `cargo run --release --bin rust_tts_runtime -- "${currentText}" --blend "huuduc:0.7,kimoanh:0.3" --output out.wav`;
+      } else if (select.value.endsWith('.bin')) {
+        codeSnippet.innerText = `cargo run --release --bin rust_tts_runtime -- "${currentText}" -v ${select.value} -o test_custom_voice.wav`;
       } else {
-        codeSnippet.innerText = `rust_tts_runtime "..." --voice ${select.value} --output out.wav`;
+        codeSnippet.innerText = `cargo run --release --bin rust_tts_runtime -- "${currentText}" --voice ${select.value} --output out.wav`;
       }
     }
 
