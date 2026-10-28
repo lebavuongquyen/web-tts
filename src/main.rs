@@ -1,18 +1,15 @@
-use std::fs;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use clap::Parser;
+use hound::{WavSpec, WavWriter};
 use ort::session::Session;
 use ort::value::Value;
 use rand::Rng;
+use serde_json::json;
 use tokenizers::Tokenizer;
 
-use rust_tts_runtime::audio::save_audio;
-use rust_tts_runtime::chunking::split_sentences;
-use rust_tts_runtime::srt::{write_srt_file, SubtitleItem};
-use rust_tts_runtime::text_norm::normalize_vietnamese_text;
 use rust_tts_runtime::voice::{list_voices, load_voice, parse_and_blend_spec, Voice};
 
 #[global_allocator]
@@ -23,55 +20,35 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 #[command(
     author = "Quyen Le",
     version = "0.1.0",
-    about = "High-Performance Rust TTS Runtime with Smart Chunking, Subtitle SRT, Voice Cloning & Quantization",
+    about = "High-Performance Pure TTS Runtime Engine - Generates Clean PCM WAV",
     long_about = None
 )]
 struct Args {
-    /// Văn bản tiếng Việt cần đọc (hoặc '-' để đọc từ stdin)
+    /// Văn bản hoặc chuỗi âm vị cần đọc (1 câu đơn lẻ)
     #[arg(index = 1)]
     text: Option<String>,
 
-    /// Đọc văn bản từ file (hỗ trợ file chapter truyện dài .txt)
-    #[arg(short, long)]
-    file: Option<PathBuf>,
-
-    /// Tên giọng đọc (huuduc, kimoanh, maichi, baotrang, giahuy, hamy, quangminh, tiendat) HOẶC đường dẫn file voice clone (.bin)
+    /// Tên giọng đọc (huuduc, kimoanh...), đường dẫn file .bin (ZeroTTS) HOẶC đường dẫn model .onnx (VITS)
     #[arg(short, long, default_value = "huuduc")]
     voice: String,
 
-    /// Pha trộn giọng clone lai (ví dụ: "huuduc:0.7,kimoanh:0.3")
+    /// Pha trộn giọng lai cho ZeroTTS (ví dụ: "huuduc:0.7,kimoanh:0.3")
     #[arg(long)]
     blend: Option<String>,
 
-    /// Liệt kê tất cả các giọng có sẵn trong thư mục model rồi thoát
-    #[arg(long, default_value_t = false)]
-    list_voices: bool,
+    /// Danh sách mã âm vị Phoneme IDs (dành cho VITS Engine: ví dụ "1, 23, 45, 2")
+    #[arg(long)]
+    phoneme_ids: Option<String>,
 
-    /// Đường dẫn file âm thanh xuất ra (.mp3 hoặc .wav, mặc định: output.mp3)
-    #[arg(short, long, default_value = "output.mp3")]
+    /// Tần số lấy mẫu mong muốn khi chạy VITS (mặc định: 22050)
+    #[arg(long, default_value_t = 22050)]
+    vits_sample_rate: u32,
+
+    /// Đường dẫn file âm thanh xuất ra (.wav)
+    #[arg(short, long, default_value = "output.wav")]
     output: PathBuf,
 
-    /// Bitrate khi xuất file MP3 (mặc định: 192k)
-    #[arg(short, long, default_value = "192k")]
-    bitrate: String,
-
-    /// Tự động sinh file phụ đề .srt tương ứng với từng câu
-    #[arg(long, default_value_t = true)]
-    generate_srt: bool,
-
-    /// Đường dẫn file phụ đề .srt tùy chọn (mặc định cùng tên với file output)
-    #[arg(long)]
-    srt: Option<PathBuf>,
-
-    /// Khoảng lặng giữa các câu (giây, mặc định: 0.35s)
-    #[arg(long, default_value_t = 0.35)]
-    pause: f64,
-
-    /// Bỏ qua chuẩn hóa số tiếng Việt
-    #[arg(long, default_value_t = false)]
-    no_norm: bool,
-
-    /// Thư mục chứa model weights
+    /// Thư mục chứa model weights của ZeroTTS
     #[arg(short, long, default_value = "/home/quyen/08_TTS/ZeroTTS/model_weights")]
     model_dir: PathBuf,
 
@@ -79,21 +56,108 @@ struct Args {
     #[arg(long, default_value_t = true)]
     cuda: bool,
 
-    /// Giới hạn số frame sinh tối đa cho mỗi câu
+    /// Giới hạn số frame sinh tối đa cho mỗi câu (ZeroTTS)
     #[arg(long, default_value_t = 1500)]
     max_frames: usize,
+
+    /// Liệt kê tất cả các giọng có sẵn trong model rồi thoát
+    #[arg(long, default_value_t = false)]
+    list_voices: bool,
+
+    /// Xuất log dạng JSON thuần túy (cho Wrapper dễ parse)
+    #[arg(long, default_value_t = false)]
+    json: bool,
 }
 
-fn synthesize_sentence(
-    text: &str,
-    sess_text: &mut Session,
-    sess_prefix: &mut Session,
-    sess_decode: &mut Session,
-    sess_codec: &mut Session,
-    tokenizer: &Tokenizer,
-    voice_emb: &[f32],
-    max_frames: usize,
+/// Ghi mảng f32 [-1.0, 1.0] ra file WAV chuẩn PCM 16-bit mono
+fn write_wav_file(samples: &[f32], sample_rate: u32, path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let spec = WavSpec {
+        channels: 1,
+        sample_rate,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+    let mut writer = WavWriter::create(path, spec)?;
+    for &s in samples {
+        let clamped = s.clamp(-1.0, 1.0);
+        let val_i16 = (clamped * 32767.0) as i16;
+        writer.write_sample(val_i16)?;
+    }
+    writer.finalize()?;
+    Ok(())
+}
+
+fn create_ort_session(
+    env: &ort::environment::Environment,
+    path: &Path,
+    use_cuda: bool,
+) -> Result<Session, Box<dyn std::error::Error>> {
+    let builder = Session::builder(env)?
+        .with_intra_threads(4)
+        .map_err(|e| format!("{:?}", e))?;
+
+    let mut builder = if use_cuda {
+        match builder.with_execution_providers([ort::ep::CUDA::default().build()]) {
+            Ok(b) => b,
+            Err(e) => {
+                eprintln!("Cảnh báo: Không thể bật CUDA ({:?}), chuyển về CPU", e);
+                Session::builder(env)?
+                    .with_intra_threads(4)
+                    .map_err(|e| format!("{:?}", e))?
+            }
+        }
+    } else {
+        builder
+    };
+
+    let sess = builder.commit_from_file(path).map_err(|e| format!("{:?}", e))?;
+    Ok(sess)
+}
+
+/// Chạy động cơ VITS (1-step forward pass)
+fn run_vits_engine(
+    model_path: &Path,
+    phoneme_ids: &[i64],
+    _sample_rate: u32,
+    env: &ort::environment::Environment,
+    use_cuda: bool,
 ) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
+    let mut sess = create_ort_session(env, model_path, use_cuda)?;
+
+    let l_phonemes = phoneme_ids.len();
+    let val_input = Value::from_array(([1, l_phonemes], phoneme_ids.to_vec())).map_err(|e| format!("{:?}", e))?;
+    let val_lengths = Value::from_array(([1], vec![l_phonemes as i64])).map_err(|e| format!("{:?}", e))?;
+    let val_scales = Value::from_array(([3], vec![0.667f32, 1.0f32, 0.8f32])).map_err(|e| format!("{:?}", e))?;
+
+    let outputs = sess.run(ort::inputs![
+        "input" => val_input,
+        "input_lengths" => val_lengths,
+        "scales" => val_scales,
+    ]).map_err(|e| format!("{:?}", e))?;
+
+    let (_, audio_slice) = outputs["output"].try_extract_tensor::<f32>().map_err(|e| format!("{:?}", e))?;
+    Ok(audio_slice.to_vec())
+}
+
+/// Chạy động cơ ZeroTTS (Text Encoder + Prefix AR Loop + MossCodec)
+fn run_zerotts_engine(
+    text: &str,
+    voice_emb: &[f32],
+    model_dir: &Path,
+    max_frames: usize,
+    env: &ort::environment::Environment,
+    use_cuda: bool,
+) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
+    let onnx_dir = model_dir.join("onnx");
+    let mut sess_text = create_ort_session(env, &onnx_dir.join("text_encoder.onnx"), use_cuda)?;
+    let mut sess_prefix = create_ort_session(env, &onnx_dir.join("prefix_step.onnx"), use_cuda)?;
+    let mut sess_decode = create_ort_session(env, &onnx_dir.join("local_frame_decode.onnx"), use_cuda)?;
+    let mut sess_codec = create_ort_session(env, &onnx_dir.join("codec").join("moss_audio_tokenizer_decode_full.onnx"), use_cuda)?;
+
+    let tok_path = model_dir.join("tokenizer.json");
+    let tokenizer = Tokenizer::from_file(tok_path).map_err(|e| format!("{:?}", e))?;
+
+    // 1. Tokenize Text
     let cleaned_text = text.split_whitespace().collect::<Vec<_>>().join(" ");
     let enc = tokenizer.encode(cleaned_text.as_str(), true).map_err(|e| format!("{:?}", e))?;
     let raw_ids = enc.get_ids();
@@ -125,6 +189,7 @@ fn synthesize_sentence(
     let cross_kv_vec: Vec<f32> = cross_kv_slice.to_vec();
     drop(out_text);
 
+    // 2. Cold start prefix step
     let v_len = 10;
     let d_model = 768;
     let t_init = v_len + 1;
@@ -174,7 +239,7 @@ fn synthesize_sentence(
     let mut current_full_valid = fv_slice.to_vec();
     drop(out_prefix_init);
 
-    // Vòng lặp Autoregressive (AR Loop)
+    // 3. Autoregressive Loop
     let mut rng = rand::thread_rng();
     let mut seen_mask = vec![false; 1 * 16 * 1024];
     let mut generated_codes: Vec<Vec<i32>> = Vec::new();
@@ -253,7 +318,6 @@ fn synthesize_sentence(
             }
         }
 
-        // Bước tiếp theo qua prefix_step
         let codes_i64: Vec<i64> = frame_codes_i32.iter().map(|&x| x as i64).collect();
         let pos_val = (v_len + 1 + frame_idx) as i64;
 
@@ -299,6 +363,7 @@ fn synthesize_sentence(
         return Ok(Vec::new());
     }
 
+    // 4. Codec Decode
     let mut flat_codes = Vec::with_capacity(num_gen_frames * 16);
     for frame in &generated_codes {
         for &c in frame {
@@ -339,88 +404,52 @@ fn synthesize_sentence(
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
-    // 1. Kiểm tra nếu chỉ muốn xem danh sách giọng có sẵn
+    // 1. Liệt kê danh sách giọng (nếu yêu cầu)
     if args.list_voices {
-        println!("============================================================");
-        println!("         DANH SÁCH GIỌNG ĐỌC CÓ SẴN (MODEL VOICES)");
-        println!("============================================================");
         match list_voices(&args.model_dir) {
             Ok(voices) => {
-                for (idx, v) in voices.iter().enumerate() {
-                    println!(
-                        "[{:02}] {:<12} | {:<12} | Giới tính: {:<6} | {}",
-                        idx + 1,
-                        v.name,
-                        v.display_name,
-                        v.gender,
-                        v.description
-                    );
+                if args.json {
+                    println!("{}", json!({ "voices": voices }).to_string());
+                } else {
+                    println!("============================================================");
+                    println!("         DANH SÁCH GIỌNG ĐỌC CÓ SẴN (MODEL VOICES)");
+                    println!("============================================================");
+                    for (idx, v) in voices.iter().enumerate() {
+                        println!(
+                            "[{:02}] {:<12} | {:<12} | Giới tính: {:<6} | {}",
+                            idx + 1,
+                            v.name,
+                            v.display_name,
+                            v.gender,
+                            v.description
+                        );
+                    }
                 }
-                println!("------------------------------------------------------------");
-                println!("* Mẹo clone giọng: bạn có thể nạp file vector voice (.bin) trực tiếp:");
-                println!("  --voice /path/to/my_cloned_voice.bin");
-                println!("* Mẹo pha trộn giọng: bạn có thể tạo giọng lai mới độc bản:");
-                println!("  --blend \"huuduc:0.7,kimoanh:0.3\"");
             }
             Err(e) => eprintln!("Lỗi liệt kê giọng: {}", e),
         }
         return Ok(());
     }
 
-    // 2. Thu thập văn bản đầu vào
-    let raw_text = if let Some(ref path) = args.file {
-        fs::read_to_string(path).map_err(|e| format!("Không thể đọc file {:?}: {}", path, e))?
-    } else if let Some(ref t) = args.text {
+    // 2. Kiểm tra văn bản hoặc phoneme input
+    let text = if let Some(ref t) = args.text {
         if t == "-" {
-            let mut buffer = String::new();
-            io::stdin().read_to_string(&mut buffer)?;
-            buffer
+            let mut buf = String::new();
+            io::stdin().read_to_string(&mut buf)?;
+            buf
         } else {
             t.clone()
         }
-    } else {
-        eprintln!("Lỗi: Vui lòng cung cấp văn bản cần đọc trực tiếp hoặc qua tham số --file <đường_dẫn>");
+    } else if args.phoneme_ids.is_none() {
+        eprintln!("Lỗi: Vui lòng cung cấp văn bản cần đọc hoặc --phoneme-ids");
         std::process::exit(1);
+    } else {
+        String::new()
     };
-
-    if raw_text.trim().is_empty() {
-        eprintln!("Lỗi: Văn bản rỗng!");
-        return Ok(());
-    }
 
     let t_start = Instant::now();
 
-    // 3. Chuẩn hóa tiếng Việt & Tự động Chunking
-    let normalized_text = if args.no_norm {
-        raw_text
-    } else {
-        normalize_vietnamese_text(&raw_text)
-    };
-
-    let sentences = split_sentences(&normalized_text);
-    if sentences.is_empty() {
-        eprintln!("Cảnh báo: Không tìm thấy câu nào sau khi phân tách.");
-        return Ok(());
-    }
-
-    println!("============================================================");
-    println!("     RUST TTS RUNTIME - ENGINE SIÊU TỐC ĐỘC LẬP");
-    println!("============================================================");
-    println!("Tổng số câu sau khi chunking: {} câu", sentences.len());
-    println!("File xuất âm thanh: {:?}", args.output);
-    println!("Thư mục model: {:?}", args.model_dir);
-    println!("Thiết bị tăng tốc: {}", if args.cuda { "NVIDIA CUDA (GPU)" } else { "CPU Multithread" });
-
-    // 4. Quản lý & Clone Giọng (Voice Resolution)
-    let selected_voice: Voice = if let Some(ref blend_spec) = args.blend {
-        println!("\n[Voice Cloning] Đang pha trộn giọng lai theo cấu hình: \"{}\"...", blend_spec);
-        parse_and_blend_spec(&args.model_dir, blend_spec)?
-    } else {
-        load_voice(&args.model_dir, &args.voice)?
-    };
-    println!("Giọng đọc áp dụng: {} ({} bytes)", selected_voice.name, selected_voice.emb.len() * 4);
-
-    // 5. Khởi tạo môi trường ONNX Runtime trong Rust
+    // 3. Khởi tạo môi trường ORT
     let candidates = [
         std::env::var("ORT_DYLIB_PATH").ok(),
         Some("/home/quyen/08_TTS/ZeroTTS/venv/lib/python3.12/site-packages/onnxruntime/capi/libonnxruntime.so".to_string()),
@@ -445,141 +474,58 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         None => ort::init().build().map_err(|e| format!("Lỗi khởi tạo ORT env: {:?}", e))?,
     };
 
-    let create_session = |path: PathBuf| -> Result<Session, Box<dyn std::error::Error>> {
-        let builder = Session::builder(&env)
-            .map_err(|e| format!("{:?}", e))?
-            .with_intra_threads(4)
-            .map_err(|e| format!("{:?}", e))?;
-        let mut builder = if args.cuda {
-            match builder.with_execution_providers([ort::ep::CUDA::default().build()]) {
-                Ok(b) => b,
-                Err(e) => {
-                    eprintln!("Cảnh báo: Không thể bật CUDA ({:?}), chuyển về CPU", e);
-                    Session::builder(&env)
-                        .map_err(|e| format!("{:?}", e))?
-                        .with_intra_threads(4)
-                        .map_err(|e| format!("{:?}", e))?
-                }
-            }
+    // 4. Nhận diện động cơ: VITS ONNX hay ZeroTTS
+    let is_vits = args.voice.ends_with(".onnx") || Path::new(&args.voice).extension().map_or(false, |ext| ext == "onnx");
+
+    let (samples, sample_rate) = if is_vits {
+        // Chạy VITS Engine
+        let model_path = Path::new(&args.voice);
+        let phonemes: Vec<i64> = if let Some(ref p_str) = args.phoneme_ids {
+            p_str
+                .split([',', ' '])
+                .filter_map(|s| s.trim().parse::<i64>().ok())
+                .collect()
         } else {
-            builder
-        };
-        let sess = builder.commit_from_file(path).map_err(|e| format!("{:?}", e))?;
-        Ok(sess)
-    };
-
-    println!("\n[Nạp đồ thị ONNX] Đang nạp các mô hình vào bộ nhớ...");
-    let t_load0 = Instant::now();
-    let onnx_dir = args.model_dir.join("onnx");
-    let mut sess_text = create_session(onnx_dir.join("text_encoder.onnx"))?;
-    let mut sess_prefix = create_session(onnx_dir.join("prefix_step.onnx"))?;
-    let mut sess_decode = create_session(onnx_dir.join("local_frame_decode.onnx"))?;
-    let mut sess_codec = create_session(onnx_dir.join("codec").join("moss_audio_tokenizer_decode_full.onnx"))?;
-
-    let tok_path = args.model_dir.join("tokenizer.json");
-    let tokenizer = Tokenizer::from_file(tok_path).map_err(|e| format!("{:?}", e))?;
-    println!("✓ Đã nạp xong toàn bộ mô hình và tokenizer ({:.2?})", t_load0.elapsed());
-
-    // 6. Xử lý tổng hợp từng câu & Sinh phụ đề SRT
-    println!("\n[Tổng hợp giọng nói] Đang xử lý các câu...");
-    let sample_rate = 48000;
-    let pause_samples = (args.pause * sample_rate as f64).round() as usize;
-    let pause_audio = vec![0.0f32; pause_samples];
-
-    let mut full_audio: Vec<f32> = Vec::new();
-    let mut subtitles: Vec<SubtitleItem> = Vec::new();
-    let mut current_time = 0.0;
-
-    let t_synth_all = Instant::now();
-
-    for (idx, sentence) in sentences.iter().enumerate() {
-        let sent_num = idx + 1;
-        let t0 = Instant::now();
-        let audio_piece = synthesize_sentence(
-            sentence,
-            &mut sess_text,
-            &mut sess_prefix,
-            &mut sess_decode,
-            &mut sess_codec,
-            &tokenizer,
-            &selected_voice.emb,
-            args.max_frames,
-        )?;
-        let dur = audio_piece.len() as f64 / sample_rate as f64;
-        let elapsed = t0.elapsed().as_secs_f64();
-        let rtf = elapsed / dur;
-
-        let start_sec = current_time;
-        let end_sec = current_time + dur;
-
-        subtitles.push(SubtitleItem {
-            id: sent_num,
-            start_sec,
-            end_sec,
-            text: sentence.clone(),
-        });
-
-        full_audio.extend_from_slice(&audio_piece);
-        full_audio.extend_from_slice(&pause_audio);
-        current_time = end_sec + args.pause;
-
-        let preview = if sentence.chars().count() > 42 {
-            let truncated: String = sentence.chars().take(42).collect();
-            format!("{}…", truncated)
-        } else {
-            sentence.clone()
+            eprintln!("Lỗi: Động cơ VITS ONNX yêu cầu truyền --phoneme-ids");
+            std::process::exit(1);
         };
 
-        println!(
-            "[{:02}/{:02}] {:<45} | {:.2}s audio | RTF: {:.2}x",
-            sent_num,
-            sentences.len(),
-            format!("\"{}\"", preview),
-            dur,
-            rtf
-        );
-    }
-
-    let total_synth_elapsed = t_synth_all.elapsed().as_secs_f64();
-    let total_audio_dur = full_audio.len() as f64 / sample_rate as f64;
-
-    // 7. Lưu file âm thanh (MP3 / WAV)
-    println!("\n[Lưu file âm thanh] Đang ghi file {:?}...", args.output);
-    save_audio(&full_audio, sample_rate, &args.output, &args.bitrate)?;
-
-    let file_size_mb = fs::metadata(&args.output)
-        .map(|m| m.len() as f64 / (1024.0 * 1024.0))
-        .unwrap_or(0.0);
-
-    // 8. Xuất file phụ đề SRT đồng bộ
-    let srt_path = if let Some(ref custom_srt) = args.srt {
-        Some(custom_srt.clone())
-    } else if args.generate_srt {
-        Some(args.output.with_extension("srt"))
+        let raw_samples = run_vits_engine(model_path, &phonemes, args.vits_sample_rate, &env, args.cuda)?;
+        (raw_samples, args.vits_sample_rate)
     } else {
-        None
+        // Chạy ZeroTTS Engine (48kHz)
+        let selected_voice: Voice = if let Some(ref blend_spec) = args.blend {
+            parse_and_blend_spec(&args.model_dir, blend_spec)?
+        } else {
+            load_voice(&args.model_dir, &args.voice)?
+        };
+
+        let raw_samples = run_zerotts_engine(&text, &selected_voice.emb, &args.model_dir, args.max_frames, &env, args.cuda)?;
+        (raw_samples, 48000)
     };
 
-    if let Some(ref p_srt) = srt_path {
-        write_srt_file(&subtitles, p_srt)?;
-        println!("✓ Đã xuất file phụ đề SRT: {:?}", p_srt);
-    }
+    let dur_sec = samples.len() as f64 / sample_rate as f64;
+    let elapsed = t_start.elapsed().as_secs_f64();
+    let rtf = if dur_sec > 0.0 { elapsed / dur_sec } else { 0.0 };
 
-    let total_elapsed = t_start.elapsed().as_secs_f64();
-    let total_rtf = total_synth_elapsed / total_audio_dur;
+    // 5. Ghi file WAV PCM thuần túy
+    write_wav_file(&samples, sample_rate, &args.output)?;
 
-    println!("\n============================================================");
-    println!("             HOÀN TẤT TỔNG HỢP GIỌNG NÓI");
-    println!("============================================================");
-    println!("✓ File âm thanh:      {:?} ({:.2} MB)", args.output, file_size_mb);
-    if let Some(ref p_srt) = srt_path {
-        println!("✓ File phụ đề SRT:    {:?}", p_srt);
+    if args.json {
+        let res = json!({
+            "status": "success",
+            "output": args.output.to_string_lossy(),
+            "samples": samples.len(),
+            "sample_rate": sample_rate,
+            "duration": dur_sec,
+            "elapsed": elapsed,
+            "rtf": rtf
+        });
+        println!("{}", res.to_string());
+    } else {
+        println!("✓ File âm thanh WAV: {:?}", args.output);
+        println!("✓ Thời lượng: {:.2}s | Thời gian: {:.2}s | RTF: {:.2}x", dur_sec, elapsed, rtf);
     }
-    println!("✓ Tổng số câu:        {} câu", sentences.len());
-    println!("✓ Thời lượng audio:   {:.2} giây (~{:.2} phút)", total_audio_dur, total_audio_dur / 60.0);
-    println!("✓ Thời gian render:   {:.2} giây (RTF: {:.2}x - Gấp {:.1}x thời gian thực)", total_synth_elapsed, total_rtf, 1.0 / total_rtf);
-    println!("✓ Tổng thời gian:     {:.2} giây (bao gồm nạp model)", total_elapsed);
-    println!("============================================================");
 
     Ok(())
 }
