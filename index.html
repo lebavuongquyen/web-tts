@@ -906,9 +906,17 @@ python tools/create_voice_bin.py \
 
     function playAudioDemo() {
       const player = document.getElementById('audioPlayer');
-      player.play();
-      document.getElementById('statusBadge').innerText = "Đang phát âm thanh...";
-      document.getElementById('statusBadge').style.color = "#38bdf8";
+      const promise = player.play();
+      if (promise !== undefined) {
+        promise.then(() => {
+          document.getElementById('statusBadge').innerText = "Đang phát âm thanh...";
+          document.getElementById('statusBadge').style.color = "#38bdf8";
+        }).catch(err => {
+          console.warn("Audio play prevented/loading:", err);
+          document.getElementById('statusBadge').innerText = "Bấm nút Play trên thanh phát";
+          document.getElementById('statusBadge').style.color = "#fbbf24";
+        });
+      }
     }
 
     function updateMixer() {
