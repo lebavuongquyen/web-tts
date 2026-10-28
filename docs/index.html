@@ -968,9 +968,9 @@ python tools/create_voice_bin.py \
   </div>
 
   <script type="module">
-    import init, { rtts_version, normalize_vietnamese, split_sentences_json, blend_voice_vectors, extract_dsp_voice_wasm, generate_srt_wasm, synthesize_pcm_wasm } from './wasm_pkg/rtts_wasm.js';
+    import init, { rtts_version, normalize_vietnamese, split_sentences_json, blend_voice_vectors, extract_dsp_voice_wasm, generate_srt_wasm, synthesize_pcm_wasm } from './wasm_pkg/rtts_wasm.js?v=0.1.1';
 
-    init().then(() => {
+    init('./wasm_pkg/rtts_wasm_bg.wasm?v=0.1.1').then(() => {
       console.log("⚡ [WASM] rust_tts_runtime WebAssembly initialized:", rtts_version());
       const badge = document.getElementById('wasmBadge');
       if (badge) {
