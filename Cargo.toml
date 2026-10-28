@@ -13,6 +13,10 @@ name = "rust_tts_runtime"
 path = "src/main.rs"
 
 [[bin]]
+name = "rtts-voice"
+path = "src/bin/rtts_voice.rs"
+
+[[bin]]
 name = "rtts-bench"
 path = "src/test_run.rs"
 
