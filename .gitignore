@@ -1,0 +1,11 @@
+/target/
+*.wav
+*.mp3
+*.flac
+*.m4a
+*.ogg
+*.srt
+*.onnx
+*.npy
+*.log
+.DS_Store
