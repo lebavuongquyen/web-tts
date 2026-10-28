@@ -93,15 +93,19 @@ fn create_ort_session(
     use_cuda: bool,
 ) -> Result<Session, Box<dyn std::error::Error>> {
     let builder = Session::builder(env)?
+        .with_optimization_level(ort::session::builder::GraphOptimizationLevel::All)?
         .with_intra_threads(4)
         .map_err(|e| format!("{:?}", e))?;
 
     let mut builder = if use_cuda {
-        match builder.with_execution_providers([ort::ep::CUDA::default().build()]) {
+        let cuda_ep = ort::ep::CUDA::default()
+            .with_conv_algorithm_search(ort::ep::cuda::ConvAlgorithmSearch::Heuristic);
+        match builder.with_execution_providers([cuda_ep.build()]) {
             Ok(b) => b,
             Err(e) => {
                 eprintln!("Cảnh báo: Không thể bật CUDA ({:?}), chuyển về CPU", e);
                 Session::builder(env)?
+                    .with_optimization_level(ort::session::builder::GraphOptimizationLevel::All)?
                     .with_intra_threads(4)
                     .map_err(|e| format!("{:?}", e))?
             }

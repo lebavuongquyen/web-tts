@@ -1,115 +1,102 @@
 # 🦀 rust_tts_runtime
 
-> **High-Performance Standalone Rust TTS Runtime with Smart Chunking, Subtitle SRT Generation, Voice Cloning & Quantization.**
+> **High-Performance Standalone Rust TTS Runtime with Smart Chunking, Subtitle SRT Generation, Voice Cloning & WebAssembly Architecture.**
 
-Repository: [https://github.com/lebavuongquyen/rust_tts_runtime](https://github.com/lebavuongquyen/rust_tts_runtime)
+[![GitHub Pages](https://img.shields.io/badge/Demo-GitHub%20Pages-blue?style=for-the-badge&logo=github)](https://lebavuongquyen.github.io/rust_tts_runtime/)
+[![Rust](https://img.shields.io/badge/Rust-1.80+-orange?style=for-the-badge&logo=rust)](https://www.rust-lang.org/)
+[![CUDA](https://img.shields.io/badge/NVIDIA-CUDA%20RTX%203060-green?style=for-the-badge&logo=nvidia)](https://developer.nvidia.com/cuda-zone)
+[![WebAssembly](https://img.shields.io/badge/WebAssembly-WASM-purple?style=for-the-badge&logo=webassembly)](https://webassembly.org/)
+
+🌐 **Live Demo Trải Nghiệm Trực Tuyến**: [https://lebavuongquyen.github.io/rust_tts_runtime/](https://lebavuongquyen.github.io/rust_tts_runtime/)
 
 ---
 
 ## 🌟 Điểm nổi bật (Key Features)
 
-* 🚀 **Tối ưu hóa hiệu năng cao**: Tích hợp bộ cấp phát bộ nhớ siêu tốc **`mimalloc`**, hỗ trợ tăng tốc phần cứng **NVIDIA CUDA (GPU)** và đa luồng **CPU**.
-* 🧩 **Kiến trúc tách rời (Decoupled Architecture)**: 
-  * **Lõi Engine (Rust)**: Tính toán ma trận ONNX, quản lý bộ nhớ đệm, tối ưu tốc độ và độ trễ.
-  * **Bộ vỏ SDK (Python / CLI)**: Tự động chia đoạn (chunking), chuẩn hóa văn bản tiếng Việt, xuất file phụ đề `.srt`, API tiện lợi.
-* 🗣️ **Hệ thống Quản lý & Clone Giọng (Voice Cloning)**:
-  * Nạp 8 giọng chuẩn có sẵn (`huuduc`, `kimoanh`, `maichi`, `baotrang`, `giahuy`, `hamy`, `quangminh`, `tiendat`).
-  * Nạp file giọng clone tùy chỉnh (`.bin` 30KB) từ bất kỳ đường dẫn nào.
-  * **Pha trộn giọng lai độc bản (Voice Blending)**: Tạo giọng mới bằng cách nội suy không gian vector latent (`huuduc:0.7,kimoanh:0.3`).
-* 📜 **Đồng bộ phụ đề SRT tự động**: Đo đạc độ dài từng câu chính xác đến từng mili-giây, xuất file `.srt` chuẩn chỉnh cùng lúc với file âm thanh (`.mp3` / `.wav`).
-* 🇻🇳 **Chuẩn hóa tiếng Việt chuyên sâu**: Đọc số nguyên, phần trăm (`100%`), ngày tháng năm (`28/10/2026`) thành chữ tiếng Việt chuẩn xác trước khi tổng hợp giọng nói.
+* 🚀 **Lõi Runtime Thuần Khiết (Pure Rust)**: Chuyên trách tính toán ma trận nơ-ron tốc độ cao, tích hợp bộ cấp phát siêu tốc **`mimalloc`** và tăng tốc **NVIDIA CUDA (GPU)**.
+* 🧩 **Kiến trúc phân tầng chuẩn mực**: 
+  * **Lõi Engine (Rust)**: Tính toán ma trận ONNX, xuất duy nhất file WAV PCM chuẩn 16-bit.
+  * **Bộ vỏ điều phối (Python SDK)**: Tự động chia đoạn (Smart Chunking), chuẩn hóa tiếng Việt, xuất file phụ đề `.srt` đồng bộ từng mili-giây, ghép nối xuất file `.mp3` / `.wav`.
+* 🗣️ **Hỗ trợ 2 Chuẩn Voice Đa Dạng**:
+  1. **Voice Latents (`.bin` - 30 KB)**: Dành cho ZeroTTS, nạp tức thì, hỗ trợ pha trộn giọng lai độc bản (Voice Blending: `huuduc:0.7,kimoanh:0.3`).
+  2. **Standalone Model (`.onnx` - 60 MB)**: Dành cho VITS Fine-tuned, đạt **độ giống 98%**, tốc độ siêu tốc RTF 0.05x (gấp 20x thời gian thực).
+* 🛠️ **Bộ Toolchain Tạo Voice Hoàn Chỉnh**:
+  * `tools/create_voice_bin.py`: Tạo / trích xuất file `.bin` (30KB) từ MP3/WAV hoặc blend giọng.
+  * `tools/auto_finetune_vits_onnx.py`: Tự động Fine-Tune từ tập audio MP3/WAV $\rightarrow$ xuất file `.onnx` mới chỉ bằng 1 dòng lệnh.
+* 🌐 **Sẵn sàng cho WebAssembly (In-Browser TTS)**: Thiết kế 100% In-Memory để đưa lên trình duyệt web (như `vangioi.com`), người dùng tự đọc truyện trên máy của họ, server tốn 0đ chi phí GPU!
 
 ---
 
-## 🏗️ Cài đặt & Biên dịch
+## 📚 Tài liệu chi tiết (Documentation)
 
-### Yêu cầu hệ thống:
-* Rust toolchain (Cargo) 1.80+
-* `ffmpeg` (để xuất file `.mp3`)
-* `onnxruntime` CUDA hoặc CPU
+* 🏛️ **[Kiến trúc hệ thống chi tiết (Architecture)](docs/ARCHITECTURE.md)**: Phân tách rõ ràng giữa Pure Runtime, Python Wrapper và WebAssembly.
+* 🗣️ **[Hướng dẫn Clone Giọng Nói (Voice Cloning Guide)](docs/VOICE_CLONING.md)**: Hướng dẫn tạo file `.bin` 30KB và fine-tune file `.onnx` 60MB.
+* 📊 **[Báo cáo Benchmark & Hiệu năng (Benchmarks)](docs/BENCHMARKS.md)**: Đo đạc tốc độ FPS, RTF, RAM/VRAM giữa GPU RTX 3060 và CPU Xeon.
+* 🌐 **[Kế hoạch triển khai WebAssembly (WebAssembly Guide)](docs/WEBASSEMBLY.md)**: Hướng dẫn đưa WebAssembly lên vangioi.com để chạy 100% In-Memory Client-side.
+
+---
+
+## 🏗️ Cài đặt & Biên dịch Lõi Runtime
 
 ```bash
-cd /home/quyen/08_TTS/rust_tts_runtime
+git clone https://github.com/lebavuongquyen/rust_tts_runtime.git
+cd rust_tts_runtime
 cargo build --release
 ```
-Binary sau khi biên dịch nằm tại: `target/release/rust_tts_runtime`.
+Binary nằm tại: `target/release/rust_tts_runtime`.
 
 ---
 
-## 💻 Sử dụng qua dòng lệnh (CLI)
+## 💻 Sử dụng Lõi Runtime qua CLI
 
-### 1. Xem danh sách giọng đọc có sẵn
 ```bash
-./target/release/rust_tts_runtime --list-voices
-```
-
-### 2. Đọc một câu ngắn hoặc đoạn văn
-```bash
-./target/release/rust_tts_runtime "Tôi là một siêu cấp lão làng. Hôm nay là ngày 28/10/2026 với 100% sức mạnh." \
-  --voice kimoanh \
-  --output story.mp3 \
-  --generate-srt
-```
-*(Hệ thống sẽ tạo ra đồng thời cả `story.mp3` và file phụ đề `story.srt`)*.
-
-### 3. Đọc cả chương truyện dài từ file text
-```bash
-./target/release/rust_tts_runtime --file chapter_1.txt \
+# 1. Chạy ZeroTTS với giọng chuẩn (hoặc file .bin riêng):
+./target/release/rust_tts_runtime "Tôi là một siêu cấp lão làng." \
   --voice huuduc \
-  --output chapter_1.mp3 \
-  --pause 0.35
-```
+  --output test.wav \
+  --json
 
-### 4. Clone giọng & Pha trộn giọng lai (Voice Blending)
-```bash
-# Nạp file clone riêng
-./target/release/rust_tts_runtime "Xin chào các bạn." --voice /path/to/my_clone.bin
-
-# Pha trộn 70% Hữu Đức + 30% Kim Oanh
-./target/release/rust_tts_runtime "Đây là chất giọng mới độc bản." \
+# 2. Chạy ZeroTTS với giọng pha trộn (Voice Blend):
+./target/release/rust_tts_runtime "Giọng đọc lai độc bản." \
   --blend "huuduc:0.7,kimoanh:0.3" \
-  --output hybrid_voice.mp3
+  --output blend.wav
+
+# 3. Chạy VITS ONNX Engine (98% độ giống):
+./target/release/rust_tts_runtime \
+  --voice path/to/model.onnx \
+  --phoneme-ids "1 0 32 0 142 0 120 0 27 0 2" \
+  --output vits.wav
 ```
 
 ---
 
-## 🐍 Sử dụng qua Bộ vỏ Python (Python SDK)
+## 🐍 Sử dụng Bộ vỏ Python SDK
+
+Bộ vỏ Python đảm nhận việc đọc đoạn văn bản dài, tự động chia câu, chuẩn hóa số tiếng Việt và xuất file phụ đề `.srt` đồng bộ:
 
 ```python
+import sys
+sys.path.insert(0, 'python')
 from rust_tts_runtime import RustTTS
 
-tts = RustTTS(
-    binary_path="target/release/rust_tts_runtime",
-    model_dir="/home/quyen/08_TTS/ZeroTTS/model_weights",
-    cuda=True  # Sử dụng GPU RTX 3060
-)
+tts = RustTTS(cuda=True)
 
-# 1. Liệt kê các giọng có sẵn
-print(tts.list_voices())
-
-# 2. Tổng hợp văn bản dài kèm phụ đề SRT
+# Đọc văn bản dài kèm phụ đề SRT và xuất file MP3:
 res = tts.speak(
-    text="Đêm đã về khuya trên thung lũng sương mù. Tiếng suối chảy róc rách qua từng khe đá...",
-    voice="kimoanh",
-    output="output.mp3",
-    generate_srt=True,
-    pause=0.35
+    text="Tôi là một siêu cấp lão làng. Hôm nay là ngày 28/10/2026 với 100% công lực.",
+    voice="kimoanh",           # hoặc đường dẫn tới file .onnx / .bin
+    output="chapter_1.mp3",
+    generate_srt=True,         # Tự động xuất chapter_1.srt
+    pause=0.35                 # Khoảng lặng giữa các câu
 )
 
 print("Audio file:", res["audio"])
 print("SRT file:  ", res["srt"])
-
-# 3. Đọc cả file truyện
-res = tts.speak_file("chapter_1.txt", voice="huuduc", output="chapter_1.mp3")
+print(f"Tổng số câu: {res['sentences']} | Thời lượng: {res['duration']}s")
 ```
 
 ---
 
-## 🔬 Nghiên cứu cơ chế Clone Giọng (Voice Latents Architecture)
+## 📄 Giấy phép
 
-Trong hệ thống ZeroTTS:
-1. Giọng nói được nén trong ma trận **Acoustic Prefix Latents** kích thước **`(1, 10, 768)` Float32** (tương đương 7.680 con số thực hoặc đúng **30.720 bytes**).
-2. Khi suy luận, ma trận này đóng vai trò là "mỏ neo âm sắc" (timbre anchor) mở đầu chuỗi AR Attention.
-3. Không gian vector $10 \times 768$ này là **không gian liên tục**:
-   $$\mathbf{v}_{\text{blend}} = \sum_i w_i \cdot \mathbf{v}_i \quad \text{với } \sum w_i = 1$$
-   Cho phép pha trộn tỷ lệ giữa các giọng nói để tạo ra các giọng đọc độc bản hoàn toàn mới mà không cần train lại mô hình.
+Mã nguồn được phân phối theo giấy phép MIT.
