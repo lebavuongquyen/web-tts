@@ -1,4 +1,6 @@
-/target/
+target/
+**/target/
+*.tar.gz
 *.wav
 *.mp3
 !docs/audio/*.mp3

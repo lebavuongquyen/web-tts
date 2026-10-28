@@ -1,0 +1,14 @@
+[package]
+name = "rtts_wasm"
+version = "0.1.0"
+edition = "2021"
+description = "WebAssembly Core for rust_tts_runtime: Vietnamese Text Normalizer, Chunking, Voice Blending, and DSP Feature Extraction"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+wasm-bindgen = "=0.2.92"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+regex = "1.10"

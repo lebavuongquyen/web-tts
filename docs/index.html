@@ -613,7 +613,7 @@
 
     <!-- Hero -->
     <section class="hero">
-      <div class="hero-badge">⚡ 100% In-Memory & WebAssembly Ready</div>
+      <div class="hero-badge" id="wasmBadge">⚡ Khởi động WebAssembly Core...</div>
       <h1>Hệ thống Giọng nói AI <span class="gradient-text">Siêu Tốc Độ</span></h1>
       <p>Kiến trúc tách rời độc lập: Lõi Runtime Rust tối ưu phần cứng kết hợp Bộ vỏ điều phối văn bản tiếng Việt, tự động chia đoạn, đồng bộ phụ đề SRT và Clone Giọng đa tầng.</p>
 
@@ -962,6 +962,39 @@ python tools/create_voice_bin.py \
     </footer>
   </div>
 
+  <script type="module">
+    import init, { rtts_version, normalize_vietnamese, split_sentences_json, blend_voice_vectors, extract_dsp_voice_wasm, generate_srt_wasm } from './wasm_pkg/rtts_wasm.js';
+
+    init().then(() => {
+      console.log("⚡ [WASM] rust_tts_runtime WebAssembly initialized:", rtts_version());
+      const badge = document.getElementById('wasmBadge');
+      if (badge) {
+        badge.innerText = "⚡ WebAssembly Engine v0.1.0 Active (Running in RAM)";
+        badge.style.color = "#34d399";
+        badge.style.borderColor = "rgba(16, 185, 129, 0.4)";
+        badge.style.background = "rgba(16, 185, 129, 0.1)";
+      }
+      window.rttsWasm = {
+        isLoaded: true,
+        version: rtts_version,
+        normalize: normalize_vietnamese,
+        splitSentences: (text, maxWords) => {
+          try { return JSON.parse(split_sentences_json(text, maxWords)); }
+          catch (e) { return text.split(/(?<=[.!?])\s+/); }
+        },
+        blend: blend_voice_vectors,
+        extractDsp: extract_dsp_voice_wasm,
+        generateSrt: generate_srt_wasm
+      };
+    }).catch(err => {
+      console.warn("WASM fallback:", err);
+      const badge = document.getElementById('wasmBadge');
+      if (badge) {
+        badge.innerText = "⚡ 100% In-Memory Ready";
+      }
+    });
+  </script>
+
   <script>
     const PRESETS = {
       1: "Gió lạnh rít từng hồi qua hẻm núi hoang vu. Bóng đêm mịt mù bao trùm lên ngôi chùa cổ trên đỉnh Yên Tử. Vị kiếm khách lặng lẽ đứng tựa vào gốc tùng già, tay nắm chặt đốc kiếm, đôi mắt sắc lạnh nhìn về phía chân trời.",
@@ -1063,7 +1096,12 @@ python tools/create_voice_bin.py \
 
       // Bước 1: Text Normalizer (0ms)
       logToTerminal("INFO", "log-tag-info", `Nhận chuỗi văn bản: ${wordCount} từ tiếng Việt, ${sentenceCount} câu phân đoạn.`);
-      logToTerminal("STEP 1/5", "log-tag-step", `[Vietnamese Normalizer] Chuẩn hóa số, ngày tháng, dấu thanh và ký tự đặc biệt...`);
+      if (window.rttsWasm && window.rttsWasm.isLoaded) {
+        const wasmNorm = window.rttsWasm.normalize(rawText);
+        logToTerminal("WASM RUST", "log-tag-step", `[WebAssembly Core] Thực thi hàm normalize_vietnamese() thuần Rust trong RAM: "${wasmNorm.substring(0, 48)}..."`);
+      } else {
+        logToTerminal("STEP 1/5", "log-tag-step", `[Vietnamese Normalizer] Chuẩn hóa số, ngày tháng, dấu thanh và ký tự đặc biệt...`);
+      }
       progressFill.style.width = "20%";
       progressVal.innerText = "20%";
       progressStage.innerText = "Chuẩn hóa văn bản tiếng Việt...";
@@ -1359,18 +1397,24 @@ python tools/create_voice_bin.py \
       document.getElementById('resZcr').innerText = zcr.toFixed(3);
 
       // Tạo Vector tiền tố âm học 1 x 10 x 768 Float32 (Đúng 30.720 bytes)
-      const totalFloats = 10 * 768; // 7,680 số thực Float32
-      const floatArray = new Float32Array(totalFloats);
-      const pitchBias = (f0 - 150) / 100.0;
+      let floatArray;
+      if (window.rttsWasm && window.rttsWasm.isLoaded) {
+        console.log("⚡ [WASM] Executing extract_dsp_voice_wasm (Pure Rust in Browser)...");
+        const wasmVec = window.rttsWasm.extractDsp(channelData, sampleRate);
+        floatArray = new Float32Array(wasmVec);
+      } else {
+        const totalFloats = 10 * 768; // 7,680 số thực Float32
+        floatArray = new Float32Array(totalFloats);
+        const pitchBias = (f0 - 150) / 100.0;
 
-      for (let t = 0; t < 10; t++) {
-        for (let d = 0; d < 768; d++) {
-          const idx = t * 768 + d;
-          // Harmonic wave projection
-          const base = Math.sin(t * 0.7 + d * 0.13) * 0.25;
-          const overtone = Math.cos(d * 0.05 + pitchBias) * (0.15 + rms * 0.2);
-          const brightness = Math.sin(d * 0.3) * (zcr * 2.0);
-          floatArray[idx] = base + overtone + brightness;
+        for (let t = 0; t < 10; t++) {
+          for (let d = 0; d < 768; d++) {
+            const idx = t * 768 + d;
+            const base = Math.sin(t * 0.7 + d * 0.13) * 0.25;
+            const overtone = Math.cos(d * 0.05 + pitchBias) * (0.15 + rms * 0.2);
+            const brightness = Math.sin(d * 0.3) * (zcr * 2.0);
+            floatArray[idx] = base + overtone + brightness;
+          }
         }
       }
 
