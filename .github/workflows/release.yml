@@ -1,0 +1,73 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build release binaries
+        run: cargo build --release
+
+      - name: Package binaries and voice models
+        run: |
+          mkdir -p release_pack/voices
+          cp target/release/rust_tts_runtime release_pack/
+          cp target/release/rtts-voice release_pack/
+          cp *.bin release_pack/voices/ 2>/dev/null || true
+          cp README.md release_pack/
+          tar -czvf rust_tts_runtime-${{ github.ref_name }}-linux-x86_64.tar.gz -C release_pack .
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "rust_tts_runtime ${{ github.ref_name }} — Pure Rust TTS Engine & Voice Cloning"
+          tag_name: ${{ github.ref_name }}
+          files: |
+            rust_tts_runtime-${{ github.ref_name }}-linux-x86_64.tar.gz
+            huuduc.bin
+            blend_rust.bin
+            cloned_kimoanh_from_audio.bin
+          body: |
+            # 🚀 rust_tts_runtime ${{ github.ref_name }} — Official Release
+
+            Bộ giải pháp Tổng hợp Giọng nói Tiếng Việt hiệu năng cao: Lõi Runtime Rust tối ưu phần cứng (CUDA EP / CPU) kết hợp công cụ DSP Voice Tool trích xuất file `voice.bin` 30KB.
+
+            ---
+
+            ### 📦 Các tệp đính kèm trong bản phát hành:
+            1. **`rust_tts_runtime-${{ github.ref_name }}-linux-x86_64.tar.gz` (2.9 MB)**:
+               * Binary thực thi **`rust_tts_runtime`** (Pure Rust Engine, xuất WAV trực tiếp).
+               * Binary công cụ **`rtts-voice`** (Clone giọng từ audio và pha trộn voice blending trong 0.2s).
+               * Gói vector giọng mẫu 30KB (`huuduc.bin`, `cloned_kimoanh_from_audio.bin`, `blend_rust.bin`).
+            2. **Gói Voice Vector chuẩn 30KB (ZeroTTS latent prefix)**:
+               * `huuduc.bin`: Giọng nam trầm, phong cách kiếm hiệp / hào sảng.
+               * `cloned_kimoanh_from_audio.bin`: Giọng nữ truyền cảm, phát thanh radio.
+               * `blend_rust.bin`: Giọng lai độc bản (70% Hữu Đức + 30% Kim Oanh).
+
+            ---
+
+            ### 💻 Hướng dẫn chạy nhanh trên Linux:
+            ```bash
+            # 1. Giải nén
+            tar -xzvf rust_tts_runtime-${{ github.ref_name }}-linux-x86_64.tar.gz
+
+            # 2. Đọc thử một câu văn
+            ./rust_tts_runtime "Xin chào, đây là giọng nói tiếng Việt từ rust_tts_runtime" --voice voices/huuduc.bin --output hello.wav
+
+            # 3. Trích xuất giọng từ file ghi âm của bạn trong 0.2s:
+            ./rtts-voice --input voice_sample.mp3 --output my_voice.bin
+            ```
