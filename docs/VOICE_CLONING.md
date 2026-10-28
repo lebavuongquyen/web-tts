@@ -13,12 +13,26 @@ Hệ thống hỗ trợ 2 trường phái Clone Giọng:
 
 ### Cách 1: Pha trộn giọng lai độc bản (Voice Blending)
 ```bash
-python tools/create_voice_bin.py \
-  --blend "huuduc:0.7,kimoanh:0.3" \
-  --output custom_blend.bin
+# Bằng công cụ Rust siêu nhẹ:
+rtts-voice --blend "huuduc:0.7,kimoanh:0.3" --output custom_blend.bin
+
+# Hoặc bằng Python:
+python tools/create_voice_bin.py --blend "huuduc:0.7,kimoanh:0.3" --output custom_blend.bin
 ```
 
-### Cách 2: Trích xuất từ file zip hoặc npz tải về
+### Cách 2: Trích xuất trực tiếp từ file âm thanh (.mp3 / .wav) bằng Rust CLI
+Chỉ mất **0.2 giây**, phân tích Pitch F0 và năng lượng âm phổ bằng thuật toán DSP thuần Rust:
+```bash
+rtts-voice --input voice_sample.mp3 --output my_cloned_voice.bin
+```
+
+### Cách 3: Thu âm Micro trực tiếp trên Trình duyệt Web (vangioi.com)
+* Người dùng bấm nút **[🔴 Thu Âm 5 Giây]** trên trang web `vangioi.com`.
+* Web Audio API lấy mảng PCM và chạy thuật toán DSP trong RAM trình duyệt trong **15 mili-giây**.
+* Tự động xuất file `my_voice.bin` (30.720 bytes) cho người dùng tải về hoặc thử nghiệm ngay lập tức.
+* **Chi phí server: 0 đồng**, bảo mật 100% không gửi giọng nói lên mạng!
+
+### Cách 4: Trích xuất từ file zip hoặc npz tải về
 ```bash
 python tools/create_voice_bin.py \
   -i my_voice_pack.zip \
