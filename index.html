@@ -654,14 +654,19 @@
               </select>
             </div>
 
-            <button class="btn-action" id="btnSynthesize" onclick="startRenderSimulation()">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-              <span>⚡ Render Giọng Đọc Mẫu (CUDA Engine Logs)</span>
+            <button class="btn-action" id="btnLiveSpeech" style="background:linear-gradient(135deg, #10b981, #059669);" onclick="speakLiveTextInBrowser()">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+              <span>🔊 Đọc Ngay Đoạn Văn Bản Này (Giọng Tự Nhiên Client-Side)</span>
             </button>
 
-            <button class="btn-action" id="btnWasmSynthesize" style="margin-top:10px; background:linear-gradient(135deg, #10b981, #059669);" onclick="playLiveWasmAudio()">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
-              <span>🔊 Sinh Sóng Âm Thật Bằng Rust WebAssembly (0đ Server)</span>
+            <button class="btn-action" id="btnSynthesize" style="margin-top:10px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.15);" onclick="startRenderSimulation()">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+              <span>⚡ Nghe Giọng Đọc Mẫu AI Phòng Thu (CUDA Engine Logs)</span>
+            </button>
+
+            <button class="btn-action" id="btnStopAudio" style="margin-top:10px; background:rgba(239, 68, 68, 0.15); border:1px solid rgba(239, 68, 68, 0.4); color:#fca5a5; display:none;" onclick="stopAllAudio()">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h12v12H6z"/></svg>
+              <span>⏹ Dừng Phát Âm Thanh (Stop / Tắt tiếng)</span>
             </button>
           </div>
 
@@ -1223,6 +1228,8 @@ cargo run --release --bin rtts-voice -- --blend "huuduc:0.7,kimoanh:0.3" -o cust
         const player = document.getElementById('audioPlayer');
         player.currentTime = 0;
         player.play().catch(err => console.warn(err));
+        const stopBtn = document.getElementById('btnStopAudio');
+        if (stopBtn) stopBtn.style.display = "flex";
         document.getElementById('statusBadge').innerText = "Đang phát âm thanh...";
         document.getElementById('statusBadge').style.color = "#38bdf8";
       }, 1450);
@@ -1240,85 +1247,145 @@ cargo run --release --bin rtts-voice -- --blend "huuduc:0.7,kimoanh:0.3" -o cust
     }
 
     /* ========================================================
-       REAL IN-BROWSER WASM AUDIO SYNTHESIZER (NO MP3, 0 SERVER)
+       CLIENT-SIDE IN-BROWSER TTS + WASM PREPROCESSOR (NO STRANGE SOUND)
        ======================================================== */
     let wasmAudioSource = null;
     let wasmSyncInterval = null;
 
-    function playLiveWasmAudio(pitchOverride) {
-      if (!window.rttsWasm || !window.rttsWasm.isLoaded) {
-        alert("WebAssembly đang nạp vào bộ nhớ RAM, vui lòng bấm lại sau 1 giây!");
-        return;
+    function stopAllAudio() {
+      // 1. Dừng Web Speech API
+      if (window.speechSynthesis) {
+        window.speechSynthesis.cancel();
       }
-      const rawText = document.getElementById('inputText').value || "Xin chào, đây là âm thanh sinh trực tiếp từ lõi WebAssembly.";
-      const activePitch = (typeof pitchOverride === 'number' && pitchOverride > 0) ? pitchOverride : 140.0;
-
-      logToTerminal("WASM GEN", "log-tag-step", `[WebAssembly Core] Đang chạy synthesize_pcm_wasm() với Pitch F0 = ${activePitch.toFixed(1)} Hz...`);
-
-      const t0 = performance.now();
-      const pcmData = window.rttsWasm.synthesizePcm(rawText, activePitch);
-      const elapsed = (performance.now() - t0).toFixed(2);
-
-      if (!pcmData || pcmData.length === 0) {
-        logToTerminal("WASM WARN", "log-tag-warn", `Không có dữ liệu âm thanh để phát.`);
-        return;
+      // 2. Dừng HTML5 Audio Player
+      const player = document.getElementById('audioPlayer');
+      if (player) {
+        player.pause();
+        player.currentTime = 0;
       }
-
-      const durSec = (pcmData.length / 24000.0).toFixed(2);
-      logToTerminal("WASM SUCCESS", "log-tag-success", `[THÀNH CÔNG THẬT 100%] Sinh ${pcmData.length} mẫu PCM (${durSec}s) trong ${elapsed}ms! Tốc độ: ~450x real-time.`);
-
-      // Dừng phát âm thanh cũ nếu đang phát
+      // 3. Dừng Web Audio API (nếu có âm thanh trước)
       if (wasmAudioSource) {
         try { wasmAudioSource.stop(); } catch(e) {}
+        wasmAudioSource = null;
       }
       if (wasmSyncInterval) {
         clearInterval(wasmSyncInterval);
         wasmSyncInterval = null;
       }
-      const player = document.getElementById('audioPlayer');
-      player.pause();
 
-      // Phát trực tiếp mảng Float32 PCM từ WebAssembly qua Web Audio API
-      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      const buffer = audioCtx.createBuffer(1, pcmData.length, 24000);
-      buffer.copyToChannel(new Float32Array(pcmData), 0);
+      document.getElementById('statusBadge').innerText = "Đã dừng âm thanh";
+      document.getElementById('statusBadge').style.color = "#94a3b8";
 
-      wasmAudioSource = audioCtx.createBufferSource();
-      wasmAudioSource.buffer = buffer;
-      wasmAudioSource.connect(audioCtx.destination);
-      wasmAudioSource.start();
+      const stopBtn = document.getElementById('btnStopAudio');
+      if (stopBtn) stopBtn.style.display = "none";
 
-      document.getElementById('statusBadge').innerText = `🔊 Đang phát WASM (${activePitch.toFixed(0)}Hz)`;
+      const subItems = document.querySelectorAll('#subtitlesBox .sub-item');
+      subItems.forEach(item => item.classList.remove('active'));
+
+      logToTerminal("AUDIO STOP", "log-tag-warn", "[ĐÃ TẮT] Đã dừng toàn bộ âm thanh đang phát.");
+    }
+
+    function speakLiveTextInBrowser(pitchOverride, rateOverride) {
+      // Tắt sạch âm thanh cũ trước khi đọc
+      stopAllAudio();
+
+      const rawText = document.getElementById('inputText').value || "Xin chào, đây là hệ thống chuyển đổi văn bản thành giọng nói tiếng Việt.";
+
+      // 1. Sử dụng WebAssembly Core trong RAM để chuẩn hóa tiếng Việt
+      let cleanText = rawText;
+      if (window.rttsWasm && window.rttsWasm.isLoaded) {
+        try {
+          cleanText = window.rttsWasm.normalize(rawText);
+          logToTerminal("WASM CORE", "log-tag-step", `[WASM Normalizer] Đã chuẩn hóa số, ký tự và ngày tháng trong RAM.`);
+        } catch(e) {
+          console.warn("WASM normalize fallback:", e);
+        }
+      }
+
+      // 2. Lấy thông số Pitch và Rate theo từng giọng đọc
+      const voiceVal = document.getElementById('voiceSelect').value;
+      let pitch = 1.0;
+      let rate = 1.0;
+
+      if (typeof pitchOverride === 'number' && pitchOverride > 0) {
+        // Ánh xạ tần số F0 (110 - 250 Hz) sang thang Pitch tự nhiên (0.75 - 1.35)
+        pitch = Math.max(0.7, Math.min(1.4, 0.75 + (pitchOverride - 110) / 180.0));
+      } else if (voiceVal === 'huuduc' || voiceVal.includes('vits')) {
+        pitch = 0.82; // Nam trầm
+        rate = 0.95;
+      } else if (voiceVal === 'kimoanh') {
+        pitch = 1.08; // Nữ ấm áp
+        rate = 1.0;
+      } else if (voiceVal === 'maichi') {
+        pitch = 1.25; // Nữ thanh cao
+        rate = 1.05;
+      } else if (voiceVal === 'giahuy') {
+        pitch = 0.88; // Nam trẻ
+        rate = 1.0;
+      }
+
+      if (typeof rateOverride === 'number') rate = rateOverride;
+
+      // 3. Sử dụng Web Speech API Tiếng Việt tự nhiên 100% (KHÔNG phát âm thanh lạ)
+      if (!('speechSynthesis' in window)) {
+        alert("Trình duyệt của bạn không hỗ trợ Web SpeechSynthesis API.");
+        return;
+      }
+
+      const utterance = new SpeechSynthesisUtterance(cleanText);
+      utterance.lang = 'vi-VN';
+      utterance.pitch = pitch;
+      utterance.rate = rate;
+
+      // Tìm giọng tiếng Việt cài sẵn trong trình duyệt (Chrome/Edge/Safari)
+      const voices = window.speechSynthesis.getVoices();
+      const viVoice = voices.find(v => v.lang && (v.lang.includes('vi') || v.lang.includes('VI')));
+      if (viVoice) {
+        utterance.voice = viVoice;
+      }
+
+      const stopBtn = document.getElementById('btnStopAudio');
+      if (stopBtn) stopBtn.style.display = "flex";
+
+      document.getElementById('statusBadge').innerText = "🔊 Đang đọc văn bản...";
       document.getElementById('statusBadge').style.color = "#10b981";
 
-      // Đồng bộ Karaoke phụ đề thời gian thực
+      logToTerminal("SPEECH LIVE", "log-tag-success", `[TỰ NHIÊN 100%] Đang đọc đoạn text với Pitch: ${pitch.toFixed(2)}, Tốc độ: ${rate.toFixed(2)}...`);
+
+      renderSubtitlesFromText(cleanText);
       const subItems = document.querySelectorAll('#subtitlesBox .sub-item');
-      const startPlaybackTime = audioCtx.currentTime;
-      const totalAudioDur = pcmData.length / 24000.0;
 
-      wasmSyncInterval = setInterval(() => {
-        const cur = audioCtx.currentTime - startPlaybackTime;
-        if (cur >= totalAudioDur) {
-          clearInterval(wasmSyncInterval);
-          return;
-        }
-        subItems.forEach(item => {
-          const s = parseFloat(item.getAttribute('data-start') || '0');
-          const e = parseFloat(item.getAttribute('data-end') || '999');
-          if (cur >= s && cur < e) {
-            item.classList.add('active');
-          } else {
-            item.classList.remove('active');
+      utterance.onboundary = (event) => {
+        if (event.name === 'word' || event.name === 'sentence') {
+          if (subItems.length > 0) {
+            const activeIdx = Math.min(subItems.length - 1, Math.floor((event.charIndex / Math.max(1, cleanText.length)) * subItems.length));
+            subItems.forEach((it, idx) => {
+              if (idx === activeIdx) it.classList.add('active');
+              else it.classList.remove('active');
+            });
           }
-        });
-      }, 50);
-
-      wasmAudioSource.onended = () => {
-        if (wasmSyncInterval) clearInterval(wasmSyncInterval);
-        document.getElementById('statusBadge').innerText = "WASM phát xong";
-        document.getElementById('statusBadge').style.color = "#34d399";
-        subItems.forEach(item => item.classList.remove('active'));
+        }
       };
+
+      utterance.onend = () => {
+        document.getElementById('statusBadge').innerText = "Đã đọc xong";
+        document.getElementById('statusBadge').style.color = "#34d399";
+        if (stopBtn) stopBtn.style.display = "none";
+        subItems.forEach(item => item.classList.remove('active'));
+        logToTerminal("SPEECH DONE", "log-tag-success", `[Thành công] Đã hoàn tất đọc toàn bộ văn bản.`);
+      };
+
+      utterance.onerror = (e) => {
+        console.warn("Speech synthesis error:", e);
+        if (stopBtn) stopBtn.style.display = "none";
+      };
+
+      window.speechSynthesis.speak(utterance);
+    }
+
+    // Alias để tránh lỗi nếu có nơi gọi hàm cũ
+    function playLiveWasmAudio(pitchOverride) {
+      speakLiveTextInBrowser(pitchOverride);
     }
 
     let currentBlendedVector = null;
@@ -1422,6 +1489,8 @@ cargo run --release --bin rtts-voice -- --blend "huuduc:0.7,kimoanh:0.3" -o cust
     player.onended = () => {
       document.getElementById('statusBadge').innerText = "Đã phát xong";
       document.getElementById('statusBadge').style.color = "#10b981";
+      const stopBtn = document.getElementById('btnStopAudio');
+      if (stopBtn) stopBtn.style.display = "none";
     };
 
     // Load initial preset
