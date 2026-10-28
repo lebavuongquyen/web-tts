@@ -40,6 +40,14 @@ export function extract_dsp_voice_wasm(pcm_samples: Float32Array, sample_rate: n
 * @returns {string}
 */
 export function generate_srt_wasm(sentences: (string)[], durations: Float32Array): string;
+/**
+* 6. BỘ TẠO SÓNG ÂM THẬT (REAL WASM PCM SYNTHESIZER)
+* Sinh mảng Float32 PCM 24.000 Hz trực tiếp trong RAM từ văn bản bất kỳ mà không cần file MP3 hay server!
+* @param {string} text
+* @param {number} pitch_hz
+* @returns {Float32Array}
+*/
+export function synthesize_pcm_wasm(text: string, pitch_hz: number): Float32Array;
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
@@ -51,6 +59,7 @@ export interface InitOutput {
   readonly normalize_vietnamese: (a: number, b: number, c: number) => void;
   readonly rtts_version: (a: number) => void;
   readonly split_sentences_json: (a: number, b: number, c: number, d: number) => void;
+  readonly synthesize_pcm_wasm: (a: number, b: number, c: number, d: number) => void;
   readonly __wbindgen_malloc: (a: number, b: number) => number;
   readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
   readonly __wbindgen_add_to_stack_pointer: (a: number) => number;

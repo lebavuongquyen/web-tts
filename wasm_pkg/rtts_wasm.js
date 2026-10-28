@@ -297,6 +297,29 @@ export function generate_srt_wasm(sentences, durations) {
     }
 }
 
+/**
+* 6. BỘ TẠO SÓNG ÂM THẬT (REAL WASM PCM SYNTHESIZER)
+* Sinh mảng Float32 PCM 24.000 Hz trực tiếp trong RAM từ văn bản bất kỳ mà không cần file MP3 hay server!
+* @param {string} text
+* @param {number} pitch_hz
+* @returns {Float32Array}
+*/
+export function synthesize_pcm_wasm(text, pitch_hz) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        const ptr0 = passStringToWasm0(text, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.synthesize_pcm_wasm(retptr, ptr0, len0, pitch_hz);
+        var r0 = getInt32Memory0()[retptr / 4 + 0];
+        var r1 = getInt32Memory0()[retptr / 4 + 1];
+        var v2 = getArrayF32FromWasm0(r0, r1).slice();
+        wasm.__wbindgen_free(r0, r1 * 4, 4);
+        return v2;
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
+
 async function __wbg_load(module, imports) {
     if (typeof Response === 'function' && module instanceof Response) {
         if (typeof WebAssembly.instantiateStreaming === 'function') {
