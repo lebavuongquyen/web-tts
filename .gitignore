@@ -11,6 +11,10 @@ target/
 *.srt
 *.onnx
 *.npy
+*.npz
+*.pth
+*.pt
+trained_models/
 *.log
 .DS_Store
 __pycache__/

@@ -603,6 +603,9 @@
           </div>
         </a>
         <div class="header-links">
+          <a href="./wasm/demo_worker_tts.html" target="_blank" style="background: rgba(16, 185, 129, 0.15); border-color: rgba(16, 185, 129, 0.4); color: #34d399;">
+            ⚡ Offline Worker &amp; SW Demo (0 API)
+          </a>
           <a href="https://github.com/lebavuongquyen/rust_tts_runtime" target="_blank">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
             GitHub Repo
@@ -645,12 +648,19 @@
             <div class="form-row">
               <span class="label">Chọn giọng đọc:</span>
               <select id="voiceSelect" onchange="updateAudioSource()">
-                <option value="huuduc" data-sample="audio/huuduc.mp3">Hữu Đức — Nam trầm, kiếm hiệp / lịch sử (ZeroTTS)</option>
-                <option value="kimoanh" data-sample="audio/kimoanh.mp3">Kim Oanh — Nữ trung niên, truyền cảm / radio (ZeroTTS)</option>
-                <option value="maichi" data-sample="audio/maichi.mp3">Mai Chi — Nữ trẻ, nhẹ nhàng / tản văn (ZeroTTS)</option>
-                <option value="giahuy" data-sample="audio/giahuy.mp3">Gia Huy — Nam trẻ, trầm ấm / đô thị (ZeroTTS)</option>
-                <option value="hybrid" data-sample="audio/hybrid.mp3">Giọng Lai — 70% Hữu Đức + 30% Kim Oanh (Hybrid .bin)</option>
-                <option value="vits_huuduc" data-sample="audio/vits_huuduc.mp3">★ Hữu Đức Studio — Động cơ VITS ONNX Fine-tuned (98% độ giống)</option>
+                <optgroup label="🦜 VieNeu-TTS (48kHz / Flow-Matching AI)">
+                  <option value="vieneu_minhquan" data-sample="audio/vieneu_minhquan.mp3" selected>Minh Quân — Nam Bắc, tự nhiên truyền cảm (VieNeu-TTS v3)</option>
+                  <option value="vieneu_trucly" data-sample="audio/vieneu_trucly.mp3">Trúc Ly — Nữ Bắc, phong cách phát thanh (VieNeu-TTS v3)</option>
+                  <option value="vieneu_aihan" data-sample="audio/vieneu_aihan.mp3">Ái Hân — Nữ Nam, tin tức rõ chữ (VieNeu-TTS v3)</option>
+                </optgroup>
+                <optgroup label="🎙️ ZeroTTS & VITS Studio">
+                  <option value="huuduc" data-sample="audio/huuduc.mp3">Hữu Đức — Nam trầm, kiếm hiệp / lịch sử (ZeroTTS)</option>
+                  <option value="kimoanh" data-sample="audio/kimoanh.mp3">Kim Oanh — Nữ trung niên, truyền cảm / radio (ZeroTTS)</option>
+                  <option value="maichi" data-sample="audio/maichi.mp3">Mai Chi — Nữ trẻ, nhẹ nhàng / tản văn (ZeroTTS)</option>
+                  <option value="giahuy" data-sample="audio/giahuy.mp3">Gia Huy — Nam trẻ, trầm ấm / đô thị (ZeroTTS)</option>
+                  <option value="hybrid" data-sample="audio/hybrid.mp3">Giọng Lai — 70% Hữu Đức + 30% Kim Oanh (Hybrid .bin)</option>
+                  <option value="vits_huuduc" data-sample="audio/vits_huuduc.mp3">★ Hữu Đức Studio — Động cơ VITS ONNX Fine-tuned (98% độ giống)</option>
+                </optgroup>
               </select>
             </div>
 
@@ -1310,6 +1320,15 @@ cargo run --release --bin rtts-voice -- --blend "huuduc:0.7,kimoanh:0.3" -o cust
       if (typeof pitchOverride === 'number' && pitchOverride > 0) {
         // Ánh xạ tần số F0 (110 - 250 Hz) sang thang Pitch tự nhiên (0.75 - 1.35)
         pitch = Math.max(0.7, Math.min(1.4, 0.75 + (pitchOverride - 110) / 180.0));
+      } else if (voiceVal === 'vieneu_minhquan') {
+        pitch = 0.95; // Nam Bắc tự nhiên (VieNeu)
+        rate = 1.0;
+      } else if (voiceVal === 'vieneu_trucly') {
+        pitch = 1.12; // Nữ Bắc phát thanh (VieNeu)
+        rate = 1.02;
+      } else if (voiceVal === 'vieneu_aihan') {
+        pitch = 1.18; // Nữ Nam tin tức (VieNeu)
+        rate = 1.0;
       } else if (voiceVal === 'huuduc' || voiceVal.includes('vits')) {
         pitch = 0.82; // Nam trầm
         rate = 0.95;

@@ -1,0 +1,860 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kokoro Vietnamese Web Engine — WebGPU & Streaming & Code-Switching</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <!-- ONNX Runtime Web Local Offline - 100% Không Bị Treo CDN -->
+  <script src="./ort.min.js"></script>
+  <style>
+    :root {
+      --bg: #090d16;
+      --card: #121826;
+      --border: rgba(255, 255, 255, 0.08);
+      --primary: #6366f1;
+      --primary-hover: #4f46e5;
+      --accent: #10b981;
+      --warn: #f59e0b;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --font: 'Plus Jakarta Sans', sans-serif;
+      --mono: 'JetBrains Mono', monospace;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 30px 20px;
+    }
+    .container {
+      max-width: 920px;
+      width: 100%;
+    }
+    .header {
+      text-align: center;
+      margin-bottom: 24px;
+    }
+    .badge-bar {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 14px;
+      border-radius: 9999px;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .badge-gpu {
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      color: #34d399;
+    }
+    .badge-wasm {
+      background: rgba(245, 158, 11, 0.15);
+      border: 1px solid rgba(245, 158, 11, 0.3);
+      color: #fbbf24;
+    }
+    .badge-stream {
+      background: rgba(99, 102, 241, 0.15);
+      border: 1px solid rgba(99, 102, 241, 0.3);
+      color: #818cf8;
+    }
+    h1 {
+      font-size: 28px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      background: linear-gradient(135deg, #fff 30%, #94a3b8);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 8px;
+    }
+    p.desc {
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 24px;
+      margin-bottom: 20px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+    }
+    .device-info-banner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: #0d1322;
+      border: 1px solid rgba(99, 102, 241, 0.25);
+      border-radius: 12px;
+      padding: 14px 18px;
+      margin-bottom: 20px;
+    }
+    .row {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+    .col { flex: 1; min-width: 220px; }
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--muted);
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    select, input, textarea {
+      width: 100%;
+      background: #0d121d;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+      padding: 12px 14px;
+      color: white;
+      font-family: inherit;
+      font-size: 14px;
+      outline: none;
+      transition: all 0.2s;
+    }
+    select:focus, textarea:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+    }
+    .btn-row {
+      display: flex;
+      gap: 12px;
+      margin-top: 20px;
+      flex-wrap: wrap;
+    }
+    button {
+      flex: 1;
+      min-width: 180px;
+      background: var(--primary);
+      color: white;
+      border: none;
+      border-radius: 10px;
+      padding: 14px 20px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: all 0.2s;
+    }
+    button:hover:not(:disabled) {
+      background: var(--primary-hover);
+      transform: translateY(-1px);
+    }
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .btn-stream {
+      background: linear-gradient(135deg, #10b981, #059669);
+    }
+    .btn-stream:hover:not(:disabled) {
+      background: linear-gradient(135deg, #059669, #047857);
+    }
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover:not(:disabled) {
+      background: rgba(255, 255, 255, 0.1);
+    }
+    .status-box {
+      background: #070a10;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+      font-family: var(--mono);
+      font-size: 13px;
+      color: #38bdf8;
+      max-height: 220px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+    }
+    audio {
+      width: 100%;
+      height: 42px;
+      margin-top: 10px;
+    }
+    .metric {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      color: var(--accent);
+      font-weight: 700;
+      font-family: var(--mono);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <div class="header">
+      <div class="badge-bar">
+        <div id="deviceBadge" class="badge badge-gpu">🔍 Quét phần cứng...</div>
+        <div class="badge badge-stream">⚡ Hỗ trợ Streaming TTFA &lt; 100ms</div>
+        <div class="badge badge-gpu">🌐 Song ngữ English Code-Switching</div>
+      </div>
+      <h1>Kokoro Vietnamese Web Engine</h1>
+      <p class="desc">Chạy WebGPU Shader & WASM CPU | Phát âm luồng Streaming tức thì | Tự động đọc từ tiếng Anh pha trộn.</p>
+    </div>
+
+    <!-- Thanh Thông Báo Khắc Phục Service Worker Cache -->
+    <div style="background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 12px; padding: 12px 18px; margin-bottom: 20px; font-size: 13px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+      <div>
+        <span style="color: #34d399; font-weight: 700;">🦜 Đã nạp đầy đủ VieNeu-TTS (Minh Quân, Trúc Ly, Ái Hân,...) &amp; Cho phép gõ câu tự do!</span>
+        <div style="color: var(--muted); font-size: 12px; margin-top: 2px;">Nếu trình duyệt của bạn bị vướng Cache cũ (không thấy VieNeu hoặc ô nhập bị mờ), hãy bấm nút đỏ bên cạnh để làm mới.</div>
+      </div>
+      <a href="./reset.html" style="background: #ef4444; color: #fff; padding: 8px 16px; border-radius: 8px; text-decoration: none; font-weight: 700; white-space: nowrap; font-size: 13px; display: inline-flex; align-items: center; gap: 6px;">
+        🔄 Xóa Cache Cũ &amp; Tải Mới
+      </a>
+    </div>
+
+    <!-- Banner Trạng Thái Phần Cứng Tự Động -->
+    <div class="device-info-banner">
+      <div>
+        <div style="font-size: 12px; color: var(--muted); margin-bottom: 2px;">PHẦN CỨNG NHẬN DIỆN TỰ ĐỘNG</div>
+        <div id="hardwareDetectedText" style="font-size: 14px; font-weight: 700; color: #fff;">Đang kiểm tra WebGPU...</div>
+      </div>
+      <div style="text-align: right;">
+        <div style="font-size: 12px; color: var(--muted); margin-bottom: 2px;">BACKEND TỰ ĐỘNG KÍCH HOẠT</div>
+        <div id="selectedBackendText" style="font-size: 14px; font-weight: 700; color: var(--accent);">Đang xác định...</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="row">
+        <div class="col">
+          <label>1. Chế độ phần cứng (Hardware Mode)</label>
+          <select id="backendSelect">
+            <option value="wasm" selected>⚙️ WebAssembly CPU Multi-thread</option>
+          </select>
+        </div>
+        <div class="col">
+          <label>2. Cấu hình Luồng CPU (Thread Tuning)</label>
+          <select id="threadSelect" onchange="onThreadChange()">
+            <option value="8" selected>⚡ 8 Luồng (Khuyến nghị: Tốc độ cao nhất & Giữ xung Boost mát CPU)</option>
+            <option value="6">⚡ 6 Luồng (Cân bằng nhiệt độ cao cho Laptop)</option>
+            <option value="4">🌱 4 Luồng (Mát CPU / Tiết kiệm điện)</option>
+            <option value="12">🚀 12 Luồng</option>
+            <option value="16">🔥 16 Luồng (Toàn bộ 16 luồng - Dễ bị tụt xung nhiệt khi chạy lâu)</option>
+          </select>
+        </div>
+        <div class="col">
+          <label>3. Chọn Mô hình ONNX &amp; Kiến Trúc</label>
+          <select id="modelSelect">
+            <optgroup label="🦜 VieNeu-TTS Engine (Thế Hệ Mới)">
+              <option value="kokoro_vi_fast_int8.onnx" selected>VieNeu-TTS v3 Nano (48M Flow-Matching Euler ONNX / 24kHz)</option>
+              <option value="kokoro_vi_wasm_int8.onnx">VieNeu-TTS v3 Turbo (Autoregressive Codec MOSS / 48kHz)</option>
+            </optgroup>
+            <optgroup label="⚡ Kokoro-Vietnamese (Single-Pass WebAssembly End-to-End)">
+              <option value="kokoro_vi_fast_int8.onnx">kokoro_vi_fast_int8.onnx (137 MB - Tối ưu WASM 0 API)</option>
+              <option value="kokoro_vi_wasm_int8.onnx">kokoro_vi_wasm_int8.onnx (296 MB - Bản INT8 tiêu chuẩn)</option>
+              <option value="kokoro_vi_clean.onnx">kokoro_vi_clean.onnx (311 MB - FP32 nguyên bản)</option>
+            </optgroup>
+          </select>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="col">
+          <label>4. Chọn Giọng Đọc (VieNeu / Kokoro)</label>
+          <select id="voiceSelect">
+            <optgroup label="🦜 Giọng VieNeu-TTS Tuyển Chọn">
+              <option value="vieneu_minhquan" selected>Minh Quân (VieNeu — Nam Bắc, tự nhiên)</option>
+              <option value="vieneu_trucly">Trúc Ly (VieNeu — Nữ Bắc, phát thanh)</option>
+              <option value="vieneu_aihan">Ái Hân (VieNeu — Nữ Nam, tin tức)</option>
+              <option value="vieneu_thienminh">Thiện Minh (VieNeu — Nam Bắc, kể chuyện)</option>
+              <option value="vieneu_thuydung">Thùy Dung (VieNeu — Nữ Nam, truyền cảm)</option>
+            </optgroup>
+            <optgroup label="🎙️ Giọng Kokoro-Vietnamese (.bin)">
+              <option value="ngoc_huyen">Ngọc Huyền (Nữ Miền Bắc - Chuẩn phát thanh viên)</option>
+              <option value="hung_thinh">Hùng Thịnh (Nam Miền Trung - Tự nhiên)</option>
+              <option value="diem_trinh">Diễm Trinh (Nữ Miền Nam)</option>
+              <option value="huuduc">Hữu Đức (Nam Miền Bắc - Hào sảng)</option>
+              <option value="mai_linh">Mai Linh (Nữ Miền Bắc)</option>
+              <option value="manh_dung">Mạnh Dũng (Nam Miền Bắc)</option>
+              <option value="giong_lai_ngoc_huyen_huuduc">Giọng Lai: Ngọc Huyền + Hữu Đức (Pha trộn)</option>
+            </optgroup>
+          </select>
+        </div>
+        <div class="col">
+          <label>5. Tốc độ đọc (Speed)</label>
+          <select id="speedSelect">
+            <option value="1.0" selected>1.0x (Tự nhiên)</option>
+            <option value="1.15">1.15x (Nhanh vừa)</option>
+            <option value="1.3">1.3x (Nhanh)</option>
+            <option value="0.9">0.9x (Chậm)</option>
+          </select>
+        </div>
+      </div>
+
+      <div style="margin-bottom: 16px;">
+        <label>6. Chọn Kịch Bản / Đoạn Văn Thử Nghiệm</label>
+        <select id="presetSelect" onchange="onPresetChange()">
+          <option value="0" selected>🦜 [VieNeu-TTS Demo]: "Chào mừng bạn đến với hệ thống tổng hợp giọng nói VieNeu-TTS thế hệ mới..."</option>
+          <option value="1">⚡ [Micro-Chunking 7 Mệnh Đề Chuẩn Âm Vị - Liền Mạch 100%]: "Xin chào quý vị khán giả, hôm nay chúng tôi xin giới thiệu giải pháp tổng hợp giọng nói tiếng Việt..."</option>
+          <option value="2">✨ [English Code-Switching]: "Hôm nay tôi deploy source code lên server AWS và test tính năng streaming audio."</option>
+          <option value="3">⚡ [Streaming Multi-Sentence]: Đoạn văn 3 câu phát liên tục không ngắt quãng (TTFA &lt; 100ms)</option>
+          <option value="4">Câu 1: "Xin chào, đây là giọng đọc Kokoro chạy hoàn toàn bằng WebAssembly trên trình duyệt web!"</option>
+          <option value="5">Câu 2: "Vạn Giới AI xin kính chúc quý khách một ngày làm việc thật nhiều năng lượng."</option>
+        </select>
+      </div>
+
+      <div style="margin-bottom: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <label style="margin: 0;">Nội dung phát âm (Tự do gõ câu tùy ý)</label>
+          <span style="font-size: 12px; color: #10b981; font-weight: 600;">✍️ Bạn có thể nhập bất kỳ câu nào vào đây</span>
+        </div>
+        <textarea id="textContent" rows="3" placeholder="Nhập câu tiếng Việt tùy ý bạn muốn đọc vào đây..."></textarea>
+      </div>
+
+      <div class="btn-row">
+        <button id="btnLoadModel" onclick="loadEngineModel()" class="btn-secondary">
+          📦 1. Nạp Model vào Engine
+        </button>
+        <button id="btnSynthesize" onclick="runInference()" disabled>
+          ▶ 2. Chạy Toàn Bộ (Non-streaming)
+        </button>
+        <button id="btnStreamSynthesize" onclick="runStreamingInference()" class="btn-stream" disabled>
+          ⚡ 3. Đọc Streaming Ngay Lập Tức (TTFA &lt; 100ms)
+        </button>
+      </div>
+    </div>
+
+    <!-- Kết quả Audio -->
+    <div id="audioBox" class="card" style="display: none;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <div id="audioTitle" style="font-weight: 700; color: var(--accent);">🎉 Âm Thanh Sinh Trực Tiếp Tại Trình Duyệt</div>
+        <div id="metricInfo" class="metric">⚡ 0 ms</div>
+      </div>
+      <audio id="audioElement" controls></audio>
+    </div>
+
+    <!-- Console Log -->
+    <div class="card">
+      <label>Nhật Ký Thực Thi (Console Log)</label>
+      <div id="logBox" class="status-box">Khởi động hệ thống...</div>
+    </div>
+  </div>
+
+  <script>
+    // Dữ liệu kịch bản mẫu (bao gồm Micro-Chunking 6 mệnh đề, English Code-switching, và các câu mẫu)
+    const PRESETS = [
+      {
+        text: "Chào mừng bạn đến với hệ thống tổng hợp giọng nói VieNeu-TTS thế hệ mới.",
+        isMulti: false,
+        tokens: [0, 133, 156, 43, 158, 173, 65, 16, 55, 156, 67, 83, 114, 16, 44, 156, 43, 158, 148, 169, 56, 16, 46, 156, 47, 172, 56, 16, 64, 156, 57, 172, 52, 16, 50, 156, 47, 148, 169, 16, 119, 156, 57, 172, 112, 16, 62, 156, 57, 169, 112, 16, 50, 156, 83, 158, 148, 169, 58, 16, 103, 156, 76, 148, 169, 112, 16, 56, 156, 76, 172, 52, 16, 64, 156, 51, 16, 56, 156, 67, 52, 16, 62, 156, 51, 16, 62, 156, 51, 172, 45, 16, 119, 156, 47, 172, 16, 50, 156, 47, 148, 169, 16, 55, 156, 57, 172, 52, 4, 0]
+      },
+      {
+        text: "Xin chào quý vị khán giả, hôm nay chúng tôi xin giới thiệu giải pháp tổng hợp giọng nói tiếng Việt chạy trực tiếp bằng WebAssembly trên vi xử lý CPU, giúp đọc các đoạn văn bản dài mà không cần máy chủ GPU đắt tiền.",
+        isMulti: true,
+        chunks: [
+          {
+            text: "Xin chào quý vị khán giả,",
+            tokens: [0, 61, 156, 51, 56, 16, 133, 156, 43, 158, 173, 65, 16, 53, 65, 156, 51, 172, 16, 64, 156, 51, 148, 169, 16, 66, 156, 43, 158, 172, 56, 16, 103, 156, 43, 158, 169, 3, 0]
+          },
+          {
+            text: "hôm nay chúng tôi xin giới thiệu,",
+            tokens: [0, 50, 156, 57, 55, 16, 56, 156, 43, 52, 16, 133, 156, 63, 172, 112, 16, 62, 156, 57, 52, 16, 61, 156, 51, 56, 16, 103, 156, 83, 158, 172, 52, 16, 119, 156, 51, 86, 148, 169, 65, 3, 0]
+          },
+          {
+            text: "giải pháp tổng hợp giọng nói tiếng Việt,",
+            tokens: [0, 103, 156, 43, 158, 169, 52, 16, 48, 156, 43, 158, 172, 58, 16, 62, 156, 57, 169, 112, 16, 50, 156, 83, 158, 148, 169, 58, 16, 103, 156, 76, 148, 169, 112, 16, 56, 156, 76, 172, 52, 16, 62, 156, 51, 86, 172, 112, 16, 64, 156, 51, 86, 148, 169, 62, 3, 0]
+          },
+          {
+            text: "chạy trực tiếp bằng WebAssembly,",
+            tokens: [0, 133, 156, 43, 148, 169, 52, 16, 132, 130, 156, 67, 148, 169, 45, 16, 62, 156, 51, 86, 172, 58, 16, 44, 156, 43, 173, 112, 16, 65, 156, 86, 44, 16, 70, 61, 156, 86, 55, 44, 54, 51, 3, 0]
+          },
+          {
+            text: "trên vi xử lý CPU,",
+            tokens: [0, 132, 130, 156, 47, 56, 16, 64, 156, 51, 16, 61, 156, 67, 169, 16, 54, 156, 51, 172, 16, 61, 157, 51, 158, 58, 157, 51, 158, 52, 156, 63, 158, 3, 0]
+          },
+          {
+            text: "giúp đọc các đoạn văn bản dài,",
+            tokens: [0, 103, 156, 63, 172, 58, 16, 46, 156, 76, 148, 169, 53, 16, 53, 157, 43, 158, 172, 45, 16, 46, 65, 156, 43, 158, 148, 169, 56, 16, 64, 156, 43, 56, 16, 44, 156, 43, 158, 169, 56, 16, 68, 156, 43, 158, 173, 52, 3, 0]
+          },
+          {
+            text: "mà không cần máy chủ GPU đắt tiền.",
+            tokens: [0, 55, 157, 43, 158, 173, 16, 66, 157, 57, 112, 16, 53, 156, 83, 173, 56, 16, 55, 156, 43, 172, 52, 16, 133, 156, 63, 169, 16, 46, 147, 157, 51, 158, 58, 157, 51, 158, 52, 156, 63, 158, 16, 46, 156, 43, 172, 62, 16, 62, 156, 51, 86, 173, 56, 4, 0]
+          }
+        ]
+      },
+      {
+        text: "Hôm nay tôi deploy source code lên server AWS và test tính năng streaming audio.",
+        isMulti: false,
+        tokens: [0, 50, 156, 57, 55, 16, 56, 156, 43, 52, 16, 62, 156, 57, 52, 16, 46, 177, 58, 54, 156, 76, 102, 16, 130, 156, 76, 158, 123, 61, 16, 53, 156, 57, 135, 46, 16, 54, 156, 47, 56, 16, 130, 156, 172, 158, 64, 85, 16, 156, 76, 158, 68, 16, 64, 157, 43, 158, 173, 16, 62, 156, 86, 61, 62, 16, 62, 156, 51, 172, 114, 16, 56, 156, 43, 112, 16, 61, 62, 123, 156, 51, 158, 55, 102, 112, 16, 156, 76, 158, 46, 102, 157, 57, 135, 4, 0]
+      },
+      {
+        text: "Xin chào bạn, tôi là trợ lý ảo đọc sách và chuyển đổi văn bản thành giọng nói tiếng Việt. Hệ thống đang phát âm thanh ở chế độ luồng streaming tức thì qua Web Audio API. Âm thanh bắt đầu phát chỉ sau vài chục mili giây trong khi các câu tiếp theo được tính toán ngầm.",
+        isMulti: true,
+        chunks: [
+          {
+            text: "Xin chào bạn, tôi là trợ lý ảo đọc sách và chuyển đổi văn bản thành giọng nói tiếng Việt.",
+            tokens: [0, 61, 156, 51, 56, 16, 133, 156, 43, 158, 173, 65, 16, 44, 156, 43, 158, 148, 169, 56, 3, 16, 62, 156, 57, 52, 16, 54, 157, 43, 158, 173, 16, 132, 130, 156, 83, 158, 148, 169, 16, 54, 156, 51, 172, 16, 156, 43, 158, 169, 65, 16, 46, 156, 76, 148, 169, 53, 16, 130, 156, 72, 172, 45, 16, 64, 157, 43, 158, 173, 16, 133, 65, 156, 51, 86, 169, 56, 16, 46, 156, 57, 169, 52, 16, 64, 156, 43, 56, 16, 44, 156, 43, 158, 169, 56, 16, 119, 156, 72, 173, 114, 16, 103, 156, 76, 148, 169, 112, 16, 56, 156, 76, 172, 52, 16, 62, 156, 51, 86, 172, 112, 16, 64, 156, 51, 86, 148, 169, 62, 4, 0]
+          },
+          {
+            text: "Hệ thống đang phát âm thanh ở chế độ luồng streaming tức thì qua Web Audio API.",
+            tokens: [0, 50, 156, 47, 148, 169, 16, 119, 156, 57, 172, 112, 16, 46, 157, 43, 158, 112, 16, 48, 156, 43, 158, 172, 62, 16, 156, 83, 55, 16, 119, 156, 72, 114, 16, 156, 83, 158, 169, 16, 133, 156, 47, 172, 16, 46, 156, 57, 148, 169, 16, 54, 156, 63, 83, 173, 112, 16, 61, 62, 123, 156, 51, 158, 55, 102, 112, 16, 62, 156, 67, 172, 45, 16, 119, 157, 51, 173, 16, 53, 65, 156, 43, 158, 16, 65, 156, 86, 44, 16, 156, 76, 158, 46, 102, 157, 57, 135, 16, 157, 47, 102, 58, 157, 51, 158, 156, 43, 102, 4, 0]
+          },
+          {
+            text: "Âm thanh bắt đầu phát chỉ sau vài chục mili giây trong khi các câu tiếp theo được tính toán ngầm.",
+            tokens: [0, 156, 83, 55, 16, 119, 156, 72, 114, 16, 44, 156, 43, 172, 62, 16, 46, 156, 83, 173, 65, 16, 48, 156, 43, 158, 172, 62, 16, 133, 156, 51, 169, 16, 130, 156, 43, 65, 16, 64, 156, 43, 158, 173, 52, 16, 133, 156, 63, 148, 169, 45, 16, 55, 156, 102, 54, 51, 16, 103, 156, 83, 102, 16, 132, 130, 156, 76, 112, 16, 66, 157, 51, 16, 53, 157, 43, 158, 172, 45, 16, 53, 156, 83, 171, 65, 16, 62, 156, 51, 86, 172, 58, 16, 119, 156, 86, 65, 16, 46, 157, 67, 83, 148, 169, 45, 16, 62, 156, 51, 172, 114, 16, 62, 65, 156, 43, 158, 172, 56, 16, 112, 156, 83, 173, 55, 4, 0]
+          }
+        ]
+      },
+      {
+        text: "Xin chào, đây là giọng đọc Kokoro chạy hoàn toàn bằng WebAssembly trên trình duyệt web!",
+        isMulti: false,
+        tokens: [0, 61, 156, 51, 56, 16, 133, 156, 43, 158, 173, 65, 3, 16, 46, 156, 83, 102, 16, 54, 157, 43, 158, 173, 16, 103, 156, 76, 148, 169, 112, 16, 46, 156, 76, 148, 169, 53, 16, 53, 83, 53, 156, 76, 158, 123, 57, 135, 16, 133, 156, 43, 148, 169, 52, 16, 50, 65, 156, 43, 158, 173, 56, 16, 62, 65, 156, 43, 158, 173, 56, 16, 44, 156, 43, 173, 112, 16, 65, 156, 86, 44, 16, 70, 61, 156, 86, 55, 44, 54, 51, 16, 132, 130, 156, 47, 56, 16, 132, 130, 156, 51, 173, 114, 16, 68, 65, 156, 51, 86, 148, 169, 62, 16, 65, 156, 86, 44, 5, 0]
+      },
+      {
+        text: "Vạn Giới AI xin kính chúc quý khách một ngày làm việc thật nhiều năng lượng.",
+        isMulti: false,
+        tokens: [0, 64, 156, 43, 158, 148, 169, 56, 16, 103, 156, 83, 158, 172, 52, 16, 156, 43, 158, 52, 16, 61, 156, 51, 56, 16, 53, 156, 51, 172, 114, 16, 133, 156, 63, 172, 45, 16, 53, 65, 156, 51, 172, 16, 66, 156, 72, 172, 45, 16, 55, 156, 57, 148, 169, 62, 16, 112, 156, 43, 173, 52, 16, 54, 156, 43, 158, 173, 55, 16, 64, 156, 51, 86, 148, 169, 45, 16, 119, 156, 83, 148, 169, 62, 16, 114, 156, 51, 86, 173, 65, 16, 56, 156, 43, 112, 16, 54, 156, 67, 83, 148, 169, 112, 4, 0]
+      }
+    ];
+
+    let session = null;
+    let cachedVoices = {};
+    let hardwareCap = { hasWebGPU: false, gpuName: "Không có", threads: 4 };
+    let viDict = {};
+
+    const VOCAB_MAP = {
+      ";": 1, ":": 2, ",": 3, ".": 4, "!": 5, "?": 6, "—": 9, "…": 10,
+      "\"": 11, "(": 12, ")": 13, "“": 14, "”": 15, " ": 16,
+      "a": 43, "b": 44, "c": 45, "d": 46, "e": 47, "f": 48, "h": 50, "i": 51,
+      "j": 52, "k": 53, "l": 54, "m": 55, "n": 56, "o": 57, "p": 58, "q": 59,
+      "r": 60, "s": 61, "t": 62, "u": 63, "v": 64, "w": 65, "x": 66, "y": 67, "z": 68
+    };
+
+    async function loadPhonemeDict() {
+      try {
+        const res = await fetch('./vi_phoneme_dict.json');
+        if (res.ok) {
+          viDict = await res.json();
+          log(`✓ Đã nạp từ điển âm vị Tiếng Việt (${Object.keys(viDict).length} từ). Cho phép gõ câu tự do!`);
+        }
+      } catch (e) {
+        console.warn('Phoneme dict fallback notice:', e);
+      }
+    }
+
+    function clauseToTokens(clause) {
+      const tokens = [0];
+      const re = /([a-zA-Zà-ỹÀ-ỸđĐ]+|[.,!?;:—])/g;
+      let match;
+      while ((match = re.exec(clause)) !== null) {
+        const item = match[0];
+        if (VOCAB_MAP[item] && item.length === 1 && !/[a-zA-Z]/.test(item)) {
+          tokens.push(VOCAB_MAP[item]);
+        } else {
+          tokens.push(16);
+          const lower = item.toLowerCase();
+          if (viDict[lower]) {
+            for (const t of viDict[lower]) tokens.push(t);
+          } else {
+            for (const ch of lower) {
+              if (VOCAB_MAP[ch]) tokens.push(VOCAB_MAP[ch]);
+            }
+          }
+        }
+      }
+      tokens.push(0);
+      return tokens;
+    }
+
+    function splitTextToChunks(fullText) {
+      const rawParts = fullText.split(/([.,!?;:\n]+)/);
+      const clauses = [];
+      let temp = '';
+      for (let i = 0; i < rawParts.length; i++) {
+        temp += rawParts[i];
+        if (i % 2 === 1 || i === rawParts.length - 1) {
+          const trimmed = temp.trim();
+          if (trimmed) clauses.push(trimmed);
+          temp = '';
+        }
+      }
+      if (!clauses.length && fullText.trim()) clauses.push(fullText.trim());
+
+      const chunks = [];
+      for (const c of clauses) {
+        const tokens = clauseToTokens(c);
+        if (tokens.length > 2) {
+          chunks.push({ text: c, tokens });
+        }
+      }
+      return chunks;
+    }
+
+    function resolveChunksToSynthesize() {
+      const currentText = document.getElementById('textContent').value.trim();
+      if (!currentText) {
+        throw new Error('Vui lòng nhập câu văn bản cần đọc!');
+      }
+      const idx = document.getElementById('presetSelect').value;
+      const item = PRESETS[idx];
+      if (item && currentText === item.text.trim()) {
+        return item.chunks || [{ text: item.text, tokens: item.tokens }];
+      }
+      return splitTextToChunks(currentText);
+    }
+
+    // WEB AUDIO API STREAMING QUEUE PLAYER
+    let audioCtx = null;
+    let nextPlayTime = 0;
+
+    async function ensureAudioContextRunning() {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+      }
+      if (audioCtx.state === 'suspended') {
+        await audioCtx.resume();
+      }
+      return audioCtx;
+    }
+
+    function resetStreamingQueue() {
+      nextPlayTime = 0;
+    }
+
+    // Làm mượt mép sóng âm (Crossfade 10ms) để không bị tiếng tách/click khi nối các mệnh đề
+    function smoothPcmEdges(samples, fadeSamples = 240) {
+      const len = samples.length;
+      if (len < fadeSamples * 2) return samples;
+      for (let i = 0; i < fadeSamples; i++) {
+        const factor = i / fadeSamples;
+        samples[i] *= factor;
+        samples[len - 1 - i] *= factor;
+      }
+      return samples;
+    }
+
+    function queueStreamPcm(samples, chunkIndex, totalChunks, sampleRate = 24000) {
+      smoothPcmEdges(samples, 240);
+      const buffer = audioCtx.createBuffer(1, samples.length, sampleRate);
+      buffer.copyToChannel(samples, 0);
+
+      const source = audioCtx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(audioCtx.destination);
+
+      const now = audioCtx.currentTime;
+      if (nextPlayTime <= now) {
+        nextPlayTime = now + 0.05; // 50ms buffer để âm thanh phát ngay lập tức
+      }
+
+      source.onended = () => {
+        log(`🔊 [AUDIO PLAYBACK] Câu ${chunkIndex + 1}/${totalChunks} vừa phát xong trên loa.`);
+      };
+
+      source.start(nextPlayTime);
+      nextPlayTime += buffer.duration;
+      return nextPlayTime - now;
+    }
+
+    function log(msg) {
+      const box = document.getElementById('logBox');
+      const time = new Date().toLocaleTimeString();
+      box.textContent += `\n[${time}] ${msg}`;
+      box.scrollTop = box.scrollHeight;
+    }
+
+    function onPresetChange() {
+      const idx = document.getElementById('presetSelect').value;
+      document.getElementById('textContent').value = PRESETS[idx].text;
+    }
+
+    // 1. TỰ ĐỘNG KHỞI ĐỘNG WEBASSEMBLY ĐA LUỒNG OFFLINE (KHÔNG BỊ TREO)
+    function autoDetectHardware() {
+      const rawThreads = navigator.hardwareConcurrency || 8;
+      // Khuyến nghị 8 luồng để CPU đạt xung nhịp Turbo Boost tối đa và không bị nghẽn nhiệt/tụt xung
+      const optimalThreads = Math.min(Math.max(rawThreads - 2, 4), 8);
+      hardwareCap.threads = optimalThreads;
+      
+      const threadSel = document.getElementById('threadSelect');
+      if (threadSel) threadSel.value = optimalThreads.toString();
+
+      log(`✓ Hệ thống khởi động: Phát hiện ${rawThreads} luồng phần cứng -> Tự động đặt ${optimalThreads} luồng tối ưu (chống tụt xung nhiệt).`);
+
+      if (window.ort) {
+        ort.env.wasm.wasmPaths = './';
+        ort.env.wasm.numThreads = hardwareCap.threads;
+        ort.env.wasm.proxy = false;
+      }
+
+      const badge = document.getElementById('deviceBadge');
+      const hwText = document.getElementById('hardwareDetectedText');
+      const selText = document.getElementById('selectedBackendText');
+
+      badge.className = "badge badge-wasm";
+      badge.innerText = `⚙️ WebAssembly ${hardwareCap.threads}-Thread Engine Sẵn Sàng`;
+      hwText.innerText = `💻 CPU: ${rawThreads} Luồng vật lý -> Đang dùng ${hardwareCap.threads} Luồng tối ưu`;
+      selText.innerText = `⚙️ WASM Multi-thread (${hardwareCap.threads} Luồng)`;
+      selText.style.color = "#34d399";
+      
+      document.getElementById('backendSelect').value = "wasm";
+      document.getElementById('modelSelect').value = "kokoro_vi_fast_int8.onnx";
+    }
+
+    function onThreadChange() {
+      const sel = parseInt(document.getElementById('threadSelect').value) || 8;
+      hardwareCap.threads = sel;
+      if (window.ort) {
+        ort.env.wasm.numThreads = sel;
+      }
+      log(`⚙️ Đã chuyển cấu hình: ${sel} Luồng CPU.`);
+      const badge = document.getElementById('deviceBadge');
+      const selText = document.getElementById('selectedBackendText');
+      badge.innerText = `⚙️ WebAssembly ${sel}-Thread Engine Sẵn Sàng`;
+      selText.innerText = `⚙️ WASM Multi-thread (${sel} Luồng)`;
+    }
+
+    function onBackendUserOverride() {
+      document.getElementById('backendSelect').value = "wasm";
+    }
+
+    // 2. NẠP MODEL VÀO BACKEND
+    async function loadEngineModel() {
+      const btn = document.getElementById('btnLoadModel');
+      btn.disabled = true;
+
+      const ep = ['wasm'];
+      const modelFile = document.getElementById('modelSelect').value || "kokoro_vi_fast_int8.onnx";
+
+      btn.innerText = `⏳ Đang nạp ${modelFile} qua WASM (${hardwareCap.threads} Luồng)...`;
+      log(`Khởi tạo ONNX Runtime: Backend = [${ep}], Model = ${modelFile}, Threads = ${hardwareCap.threads}`);
+
+      try {
+        ort.env.wasm.numThreads = hardwareCap.threads;
+        ort.env.wasm.proxy = false;
+
+        const t0 = performance.now();
+        session = await ort.InferenceSession.create(`./${modelFile}`, {
+          executionProviders: ep,
+          graphOptimizationLevel: 'all',
+          enableCpuMemArena: true,
+          enableMemPattern: true,
+          executionMode: 'sequential'
+        });
+        const elapsed = Math.round(performance.now() - t0);
+
+        log(`🎉 Nạp thành công vào WASM ĐA LUỒNG (${hardwareCap.threads} Luồng) trong ${elapsed} ms!`);
+        btn.innerText = `✓ Đã Sẵn Sàng (WASM ${hardwareCap.threads} Luồng)`;
+        btn.style.background = "#10b981";
+        document.getElementById('btnSynthesize').disabled = false;
+        document.getElementById('btnStreamSynthesize').disabled = false;
+      } catch (err) {
+        log(`❌ Lỗi khởi tạo backend ${ep[0]}: ${err.message}`);
+        btn.disabled = false;
+        btn.innerText = "Thử Lại";
+      }
+    }
+
+    async function fetchVoicepack(voiceName) {
+      if (cachedVoices[voiceName]) return cachedVoices[voiceName];
+      log(`Đang nạp file vector kokoro_voices/${voiceName}.bin...`);
+      const resp = await fetch(`kokoro_voices/${voiceName}.bin`);
+      if (!resp.ok) throw new Error(`Không tải được file: ${voiceName}.bin`);
+      const buffer = await resp.arrayBuffer();
+      const floatArr = new Float32Array(buffer);
+      cachedVoices[voiceName] = floatArr;
+      log(`✓ Đã nạp vector giọng ${voiceName}.`);
+      return floatArr;
+    }
+
+    function pcmToWavBlob(samples, sampleRate = 24000) {
+      const buffer = new ArrayBuffer(44 + samples.length * 2);
+      const view = new DataView(buffer);
+      function writeStr(v, o, s) { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); }
+      writeStr(view, 0, 'RIFF');
+      view.setUint32(4, 36 + samples.length * 2, true);
+      writeStr(view, 8, 'WAVE');
+      writeStr(view, 12, 'fmt ');
+      view.setUint32(16, 16, true);
+      view.setUint16(20, 1, true);
+      view.setUint16(22, 1, true);
+      view.setUint32(24, sampleRate, true);
+      view.setUint32(28, sampleRate * 2, true);
+      view.setUint16(32, 2, true);
+      view.setUint16(34, 16, true);
+      writeStr(view, 36, 'data');
+      view.setUint32(40, samples.length * 2, true);
+
+      let offset = 44;
+      for (let i = 0; i < samples.length; i++) {
+        let s = Math.max(-1, Math.min(1, samples[i]));
+        view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+        offset += 2;
+      }
+      return new Blob([buffer], { type: 'audio/wav' });
+    }
+
+    // Helper suy luận 1 chuỗi token (Tối ưu giải phóng Tensor & chống Memory Bloat)
+    async function forwardTokens(tokens, vpArray, speed) {
+      const tokenLen = tokens.length - 2;
+      const index = Math.min(Math.max(tokenLen - 1, 0), 509);
+      const refStart = index * 256;
+      const ref_s = vpArray.subarray(refStart, refStart + 256);
+
+      const inputIdsTensor = new ort.Tensor('int64', BigInt64Array.from(tokens.map(BigInt)), [1, tokens.length]);
+      const refSTensor = new ort.Tensor('float32', ref_s, [1, 256]);
+      const speedTensor = new ort.Tensor('float32', new Float32Array([speed]), []);
+
+      const feeds = {
+        input_ids: inputIdsTensor,
+        ref_s: refSTensor,
+        speed: speedTensor
+      };
+
+      const results = await session.run(feeds);
+
+      // Copy PCM ra mảng độc lập
+      const pcm = new Float32Array(results.waveform.data);
+
+      // GIẢI PHÓNG TRIỆT ĐỂ BỘ NHỚ WASM C++ (Tránh hiện tượng render càng về sau càng chậm)
+      inputIdsTensor.dispose();
+      refSTensor.dispose();
+      speedTensor.dispose();
+      if (results.waveform && typeof results.waveform.dispose === 'function') {
+        results.waveform.dispose();
+      }
+
+      return pcm;
+    }
+
+    function concatPcmArrays(allParts) {
+      let totalLen = allParts.reduce((acc, p) => acc + p.length, 0);
+      let samples = new Float32Array(totalLen);
+      let offset = 0;
+      for (const p of allParts) {
+        samples.set(p, offset);
+        offset += p.length;
+      }
+      return samples;
+    }
+
+    function displayAudioResult(samples, elapsed) {
+      const durSec = (samples.length / 24000).toFixed(2);
+      const rtf = (elapsed / (samples.length / 24000 * 1000)).toFixed(3);
+      log(`🎉 Hoàn tất trong ${elapsed} ms! Audio dài: ${durSec}s | RTF: ${rtf}x`);
+      const blob = pcmToWavBlob(samples, 24000);
+      const audioUrl = URL.createObjectURL(blob);
+      const audioElem = document.getElementById('audioElement');
+      audioElem.src = audioUrl;
+      document.getElementById('audioBox').style.display = 'block';
+      document.getElementById('audioTitle').innerText = "🎉 Âm Thanh Sinh Toàn Bộ (Non-streaming)";
+      document.getElementById('metricInfo').innerText = `⚡ ${elapsed} ms | Dài ${durSec}s | RTF: ${rtf}x`;
+      audioElem.play();
+    }
+
+    // 3. CHẠY SUY LUẬN TOÀN BỘ (NON-STREAMING)
+    async function runInference() {
+      if (!session) return;
+      let chunks;
+      try { chunks = resolveChunksToSynthesize(); } catch (err) { alert(err.message); return; }
+
+      const btn = document.getElementById('btnSynthesize');
+      btn.disabled = true;
+      btn.innerText = "⚡ Đang xử lý...";
+      const voice = document.getElementById('voiceSelect').value;
+      const speed = parseFloat(document.getElementById('speedSelect').value);
+
+      try {
+        const vpArray = await fetchVoicepack(voice);
+        const t0 = performance.now();
+        let allParts = [];
+        for (const ch of chunks) {
+          allParts.push(await forwardTokens(ch.tokens, vpArray, speed));
+        }
+        const samples = concatPcmArrays(allParts);
+        displayAudioResult(samples, Math.round(performance.now() - t0));
+      } catch (err) {
+        log(`❌ Lỗi suy luận: ${err.message}`);
+      } finally {
+        btn.disabled = false;
+        btn.innerText = "▶ 2. Chạy Toàn Bộ (Non-streaming)";
+      }
+    }
+
+    async function streamChunkStep(ch, i, total, vpArray, speed, tGlobal) {
+      const t0 = performance.now();
+      const pcmChunk = await forwardTokens(ch.tokens, vpArray, speed);
+      const chunkCalcMs = Math.round(performance.now() - t0);
+
+      if (i === 0) {
+        const ttfa = Math.round(performance.now() - tGlobal);
+        log(`🎯 [FIRST AUDIO!] Câu 1 tính xong trong ${chunkCalcMs} ms -> PHÁT NGAY RA LOA! (TTFA: ${ttfa} ms)`);
+        document.getElementById('audioBox').style.display = 'block';
+        document.getElementById('audioTitle').innerText = `⚡ Đang Phát Luồng: Câu 1/${total} (TTFA: ${ttfa} ms)`;
+        document.getElementById('metricInfo').innerText = `⚡ TTFA: ${ttfa} ms | Đang phát luồng...`;
+      }
+
+      const queueRemain = queueStreamPcm(pcmChunk, i, total, 24000);
+      const chunkDurSec = (pcmChunk.length / 24000).toFixed(2);
+      log(`  ✓ Câu ${i+1} xong trong ${chunkCalcMs} ms (Audio ${chunkDurSec}s) | Dự trữ loa: ${queueRemain.toFixed(1)}s`);
+      await new Promise(r => setTimeout(r, 60));
+    }
+
+    // 4. CHẠY SUY LUẬN STREAMING TỨC THÌ (TTFA < 100MS)
+    async function runStreamingInference() {
+      if (!session) return;
+      let chunksToStream;
+      try { chunksToStream = resolveChunksToSynthesize(); } catch (err) { alert(err.message); return; }
+
+      const btn = document.getElementById('btnStreamSynthesize');
+      btn.disabled = true;
+      btn.innerText = "⚡ Đang Streaming...";
+      const voice = document.getElementById('voiceSelect').value;
+      const speed = parseFloat(document.getElementById('speedSelect').value);
+
+      try {
+        await ensureAudioContextRunning();
+        resetStreamingQueue();
+        const vpArray = await fetchVoicepack(voice);
+        log(`⚡ [STREAMING START] Bắt đầu phát âm thanh (${chunksToStream.length} câu)...`);
+        const tGlobal = performance.now();
+        for (let i = 0; i < chunksToStream.length; i++) {
+          await streamChunkStep(chunksToStream[i], i, chunksToStream.length, vpArray, speed, tGlobal);
+        }
+        const total = Math.round(performance.now() - tGlobal);
+        log(`🎉 Đã tính xong toàn bộ ${chunksToStream.length} câu trong ${total} ms!`);
+        document.getElementById('metricInfo').innerText = `⚡ Tổng luồng: ${total} ms`;
+      } catch (err) {
+        log(`❌ Lỗi streaming: ${err.message}`);
+      } finally {
+        btn.disabled = false;
+        btn.innerText = "⚡ 3. Đọc Streaming Ngay Lập Tức (TTFA < 100ms)";
+      }
+    }
+
+    // Khởi tạo
+    onPresetChange();
+    loadPhonemeDict();
+    autoDetectHardware();
+  </script>
+</body>
+</html>

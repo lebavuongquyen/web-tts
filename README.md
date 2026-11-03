@@ -21,16 +21,22 @@
   1. **Voice Latents (`.bin` - 30 KB)**: Dành cho ZeroTTS, nạp tức thì, hỗ trợ pha trộn giọng lai độc bản (Voice Blending: `huuduc:0.7,kimoanh:0.3`).
   2. **Standalone Model (`.onnx` - 60 MB)**: Dành cho VITS Fine-tuned, đạt **độ giống 98%**, tốc độ siêu tốc RTF 0.05x (gấp 20x thời gian thực).
 * 🛠️ **Bộ Toolchain Tạo Voice Hoàn Chỉnh**:
-  * `tools/create_voice_bin.py`: Tạo / trích xuất file `.bin` (30KB) từ MP3/WAV hoặc blend giọng.
+  * `tools/create_voice_bin.py`: Tạo / trích xuất file `.bin` (30KB) từ MP3/WAV hoặc blend giọng cho ZeroTTS.
   * `tools/auto_finetune_vits_onnx.py`: Tự động Fine-Tune từ tập audio MP3/WAV $\rightarrow$ xuất file `.onnx` mới chỉ bằng 1 dòng lệnh.
-* 🌐 **Sẵn sàng cho WebAssembly (In-Browser TTS)**: Thiết kế 100% In-Memory để đưa lên trình duyệt web (như `vangioi.com`), người dùng tự đọc truyện trên máy của họ, server tốn 0đ chi phí GPU!
+  * `tools/train_kokoro_from_zerotts.py`: **Huấn luyện âm Kokoro ngược bằng ZeroTTS** $\rightarrow$ tự động chưng cất ngữ âm từ ZeroTTS sang Kokoro Voicepack `.pt` (512 KB) & Web `.bin` (522 KB).
+* 🌐 **Trình Duyệt WebAssembly Client-Side 100% (Zero-API / PWA Offline)**:
+  * **Dual-Engine**: Tích hợp đồng thời **Kokoro-Vietnamese** (INT8 feedforward, TTFA < 80ms) và **VieNeu-TTS v3 Nano** (4-Graph Euler Flow-Matching 24kHz).
+  * **Dedicated Web Worker**: Chạy ma trận nơ-ron đa luồng SIMD ở background, giữ Main UI mượt mà 60 FPS.
+  * **PWA Offline**: Tự động tải trước (precache) vào Cache Storage, tắt mạng vẫn chạy độc lập 100%.
+  * **Từ điển âm vị 27.877 từ**: Triệt tiêu hoàn toàn hiện tượng nuốt từ; tự động căn chỉnh nhịp thở ngữ điệu (250ms dấu chấm, 140ms dấu phẩy).
 
 ---
 
 ## 📚 Tài liệu chi tiết (Documentation)
 
 * 🏛️ **[Kiến trúc hệ thống chi tiết (Architecture)](docs/ARCHITECTURE.md)**: Phân tách rõ ràng giữa Pure Runtime, Python Wrapper và WebAssembly.
-* 🗣️ **[Hướng dẫn Clone Giọng Nói (Voice Cloning Guide)](docs/VOICE_CLONING.md)**: Hướng dẫn tạo file `.bin` 30KB và fine-tune file `.onnx` 60MB.
+* 🌐 **[Hướng dẫn WebAssembly Client-Side In-Browser TTS (WASM Guide)](wasm/README.md)**: Kiến trúc Web Worker, Flow-Matching ODE, PWA Offline Cache Storage và Benchmark chi tiết.
+* 🗣️ **[Hướng dẫn Clone Giọng Nói (Voice Cloning Guide)](docs/VOICE_CLONING.md)**: Hướng dẫn tạo file `.bin` 30KB, fine-tune file `.onnx` 60MB và huấn luyện âm ngược sang Kokoro.
 * 📊 **[Báo cáo Benchmark & Hiệu năng (Benchmarks)](docs/BENCHMARKS.md)**: Đo đạc tốc độ FPS, RTF, RAM/VRAM giữa GPU RTX 3060 và CPU Xeon.
 * 🌐 **[Kế hoạch triển khai WebAssembly (WebAssembly Guide)](docs/WEBASSEMBLY.md)**: Hướng dẫn đưa WebAssembly lên vangioi.com để chạy 100% In-Memory Client-side.
 
@@ -94,6 +100,20 @@ print("Audio file:", res["audio"])
 print("SRT file:  ", res["srt"])
 print(f"Tổng số câu: {res['sentences']} | Thời lượng: {res['duration']}s")
 ```
+
+---
+
+## 🌐 Khởi Chạy Trình Duyệt Web Client (0 API / Zero Backend Cost)
+
+Khởi động máy chủ WebAssembly với header COOP/COEP kích hoạt đa luồng:
+```bash
+python3 wasm/server.py
+```
+Mở trình duyệt truy cập:
+👉 **`http://localhost:8085/`** *(hoặc `http://localhost:8085/demo_worker_tts.html`)*
+- Chọn mô hình **Kokoro-Vietnamese** (INT8) hoặc **VieNeu-TTS v3 Nano** (4-Graph Flow-Matching ODE).
+- Bấm **`1. Nạp Model vào Web Worker`** để nạp đồ thị ONNX vào bộ nhớ nền.
+- Bấm **`⚡ 3. Đọc Streaming Ngay Lập Tức`** để trải nghiệm tổng hợp giọng nói 24kHz trực tiếp trên CPU thiết bị với độ trễ TTFA < 100ms!
 
 ---
 

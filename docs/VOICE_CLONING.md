@@ -57,7 +57,44 @@ python tools/create_voice_bin.py \
 python tools/auto_finetune_vits_onnx.py \
   --data-dir data_giong \
   --name giong_vip_huuduc \
-  --epochs 15 \
+  --epochs 15
+```
+
+---
+
+## 3. Phương pháp 3: Huấn luyện Âm Kokoro Ngược bằng ZeroTTS (Reverse Synthetic Distillation)
+
+### Đặc điểm:
+* Sử dụng **ZeroTTS** làm bộ sinh âm thanh nơ-ron tổng hợp (Synthetic Teacher) với các giọng chất lượng cao (`kimoanh`, `huuduc`, `maichi`, `baotrang`, `giahuy`, `quangminh`, `tiendat`, `hamy`) hoặc giọng lai (`--blend "huuduc:0.7,kimoanh:0.3"`).
+* Không cần người thật ngồi thu âm hàng giờ: ZeroTTS tự động đọc bộ dữ liệu chuẩn âm vị 24000Hz (Phoneme-Rich Corpus).
+* Xuất đồng thời 2 định dạng:
+  * **PyTorch Voicepack (`.pt` - 512 KB)**: Nạp cho Kokoro Engine (GPU/CPU).
+  * **WebAssembly/Rust Voicepack (`.bin` - 522 KB)**: Nạp cho Trình duyệt web client-side và Rust Runtime.
+
+### Cách 1: Trích xuất siêu tốc Style Vector (Fast Mode ~ 5-10 Giây)
+Trích xuất trực tiếp ma trận đặc trưng qua StyleEncoder của Kokoro:
+```bash
+# Trích xuất giọng Kim Oanh từ ZeroTTS sang Kokoro:
+python tools/train_kokoro_from_zerotts.py --voice kimoanh --name kokoro_kimoanh
+
+# Trích xuất giọng lai độc bản từ ZeroTTS:
+python tools/train_kokoro_from_zerotts.py --blend "huuduc:0.7,kimoanh:0.3" --name giong_lai_hd_ko
+```
+
+### Cách 2: Huấn luyện ngược đầy đủ (Stage 1 Full Fine-Tuning ~ 1-2 Phút)
+Tiền xử lý âm vị `vig2p`, sinh cấu hình tự động và huấn luyện 5 epochs trên GPU RTX 3060 với PyTorch Accelerate:
+```bash
+python tools/train_kokoro_from_zerotts.py --voice maichi --mode train --epochs 5 --name kokoro_maichi_ft
+```
+
+### Cách 3: Sử dụng Giao diện Đồ họa Trực quan (Gradio Web UI)
+Khởi động Web Studio của Kokoro Vietnamese:
+```bash
+cd /home/quyen/08_TTS/Kokoro-Vietnamese
+python app.py
+```
+Vào **Tab 5: "🔄 5. Huấn luyện Âm Kokoro Ngược bằng ZeroTTS"**, chọn giọng nguồn, chọn chế độ và bấm nút **[🚀 Bắt đầu Huấn Luyện Âm Ngược sang Kokoro]**.
+ \
   --batch-size 16
 ```
 3. Sau 15 phút, bạn sẽ nhận được file `giong_vip_huuduc.onnx` và `giong_vip_huuduc.onnx.json`.
