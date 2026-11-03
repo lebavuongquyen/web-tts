@@ -1,13 +1,13 @@
-# 🦀 rust_tts_runtime
+# 🦀 Web TTS & rust_tts_runtime
 
 > **High-Performance Standalone Rust TTS Runtime with Smart Chunking, Subtitle SRT Generation, Voice Cloning & WebAssembly Architecture.**
 
-[![GitHub Pages](https://img.shields.io/badge/Demo-GitHub%20Pages-blue?style=for-the-badge&logo=github)](https://lebavuongquyen.github.io/rust_tts_runtime/)
+[![GitHub Pages](https://img.shields.io/badge/Demo-GitHub%20Pages-blue?style=for-the-badge&logo=github)](https://lebavuongquyen.github.io/web-tts/)
 [![Rust](https://img.shields.io/badge/Rust-1.80+-orange?style=for-the-badge&logo=rust)](https://www.rust-lang.org/)
 [![CUDA](https://img.shields.io/badge/NVIDIA-CUDA%20RTX%203060-green?style=for-the-badge&logo=nvidia)](https://developer.nvidia.com/cuda-zone)
 [![WebAssembly](https://img.shields.io/badge/WebAssembly-WASM-purple?style=for-the-badge&logo=webassembly)](https://webassembly.org/)
 
-🌐 **Live Demo Trải Nghiệm Trực Tuyến**: [https://lebavuongquyen.github.io/rust_tts_runtime/](https://lebavuongquyen.github.io/rust_tts_runtime/)
+🌐 **Live Demo Trải Nghiệm Trực Tuyến**: [https://lebavuongquyen.github.io/web-tts/](https://lebavuongquyen.github.io/web-tts/)
 
 ---
 
