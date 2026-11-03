@@ -41,11 +41,23 @@ self.onmessage = async (e) => {
 };
 
 function handleInitConfig(payload) {
-  currentThreads = payload.threads || 8;
+  const canThread = typeof SharedArrayBuffer !== 'undefined' && self.crossOriginIsolated;
+  currentThreads = canThread ? (payload.threads || 8) : 1;
   ort.env.wasm.wasmPaths = './';
   ort.env.wasm.numThreads = currentThreads;
   ort.env.wasm.proxy = false;
   self.postMessage({ type: 'CONFIG_READY', threads: currentThreads });
+}
+
+async function fetchOrFallbackSession(localPath, fallbackHfUrl, sessionOptions) {
+  try {
+    return await ort.InferenceSession.create(localPath, sessionOptions);
+  } catch (err) {
+    if (fallbackHfUrl) {
+      return await ort.InferenceSession.create(fallbackHfUrl, sessionOptions);
+    }
+    throw err;
+  }
 }
 
 async function handleLoadModel(payload, id) {
@@ -83,15 +95,16 @@ async function handleLoadVieneu(payload, id) {
   const t0 = performance.now();
   ort.env.wasm.numThreads = currentThreads;
   const so = { executionProviders: ['wasm'], graphOptimizationLevel: 'all' };
+  const hf = 'https://huggingface.co/pnnbao-ump/VieNeu-TTS-v3-Nano/resolve/main/';
 
   notifyProgress(1, 4, '1/4: Đang nạp Text Encoder...');
-  vieneu.sText = await ort.InferenceSession.create('./vieneu/text_encoder.onnx', so);
+  vieneu.sText = await fetchOrFallbackSession('./vieneu/text_encoder.onnx', hf + 'text_encoder.onnx', so);
   notifyProgress(2, 4, '2/4: Đang nạp Duration Predictor...');
-  vieneu.sDur = await ort.InferenceSession.create('./vieneu/duration_predictor.onnx', so);
+  vieneu.sDur = await fetchOrFallbackSession('./vieneu/duration_predictor.onnx', hf + 'duration_predictor.onnx', so);
   notifyProgress(3, 4, '3/4: Đang nạp Vector Estimator (148MB)...');
-  vieneu.sVe = await ort.InferenceSession.create('./vieneu/vector_estimator.onnx', so);
+  vieneu.sVe = await fetchOrFallbackSession('./vieneu/vector_estimator.onnx', hf + 'vector_estimator.onnx', so);
   notifyProgress(4, 4, '4/4: Đang nạp Codec Decoder (95MB)...');
-  vieneu.sDec = await ort.InferenceSession.create('./vieneu/codec_decoder.onnx', so);
+  vieneu.sDec = await fetchOrFallbackSession('./vieneu/codec_decoder.onnx', hf + 'codec_decoder.onnx', so);
 
   await loadVieneuMetadata();
   await initVieneuNullContext();

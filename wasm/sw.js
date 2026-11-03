@@ -59,26 +59,56 @@ async function cleanupOldCaches() {
   await reportCacheStatus();
 }
 
+function addCoopCoepHeaders(response) {
+  if (!response || response.status === 0 || response.type === 'opaque') {
+    return response;
+  }
+  const headers = new Headers(response.headers);
+  headers.set('Cross-Origin-Opener-Policy', 'same-origin');
+  headers.set('Cross-Origin-Embedder-Policy', 'require-corp');
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: headers
+  });
+}
+
+function resolveHfFallback(reqUrl) {
+  const urlStr = reqUrl ? reqUrl.toString() : '';
+  if (urlStr.includes('vector_estimator.onnx')) {
+    return 'https://huggingface.co/pnnbao-ump/VieNeu-TTS-v3-Nano/resolve/main/vector_estimator.onnx';
+  }
+  if (urlStr.includes('codec_decoder.onnx')) {
+    return 'https://huggingface.co/pnnbao-ump/VieNeu-TTS-v3-Nano/resolve/main/codec_decoder.onnx';
+  }
+  if (urlStr.includes('text_encoder.onnx')) {
+    return 'https://huggingface.co/pnnbao-ump/VieNeu-TTS-v3-Nano/resolve/main/text_encoder.onnx';
+  }
+  if (urlStr.includes('duration_predictor.onnx')) {
+    return 'https://huggingface.co/pnnbao-ump/VieNeu-TTS-v3-Nano/resolve/main/duration_predictor.onnx';
+  }
+  return null;
+}
+
 async function handleFetchRequest(request) {
   const cache = await caches.open(CACHE_NAME);
   const url = new URL(request.url);
 
-  // Network-First cho HTML để khi nhà phát triển sửa UI, user luôn nhận bản mới
-  if (request.mode === 'navigate' || url.pathname.endsWith('.html') || url.pathname === '/') {
+  if (request.mode === 'navigate' || url.pathname.endsWith('.html') || url.pathname === '/' || url.pathname.endsWith('/web-tts/')) {
     try {
       const netRes = await fetch(request);
       if (netRes && netRes.status === 200) {
         cache.put(request, netRes.clone());
+        return addCoopCoepHeaders(netRes);
       }
       return netRes;
     } catch (err) {
       const cached = await cache.match(request);
-      if (cached) return cached;
+      if (cached) return addCoopCoepHeaders(cached);
       throw err;
     }
   }
 
-  // Cache-First cho model nặng (.onnx, .wasm, .bin, .json)
   const cachedResponse = await cache.match(request);
   if (cachedResponse) {
     return cachedResponse;
@@ -88,7 +118,11 @@ async function handleFetchRequest(request) {
 
 async function fetchAndStore(cache, request) {
   try {
-    const networkResponse = await fetch(request);
+    let networkResponse = await fetch(request);
+    if (!networkResponse || networkResponse.status === 404) {
+      const fallbackUrl = resolveHfFallback(request.url);
+      if (fallbackUrl) networkResponse = await fetch(fallbackUrl);
+    }
     if (networkResponse && networkResponse.status === 200) {
       cache.put(request, networkResponse.clone());
     }
@@ -189,8 +223,12 @@ async function precacheModelAndVoices(client, payload) {
 
 async function cacheSingleUrl(cache, url, current, total, client) {
   try {
-    const res = await fetch(url);
-    if (res.ok) {
+    let res = await fetch(url);
+    if (!res || !res.ok) {
+      const fb = resolveHfFallback(url);
+      if (fb) res = await fetch(fb);
+    }
+    if (res && res.ok) {
       await cache.put(url, res.clone());
       const msg = { type: 'SW_PRECACHE_PROGRESS', url, current, total };
       if (client) client.postMessage(msg);
