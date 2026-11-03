@@ -3,7 +3,7 @@
 // Đảm bảo Web Client hoạt động 100% OFFLINE, 0 CẦN GỌI BẤT KỲ API NÀO.
 // ==============================================================================
 
-const CACHE_NAME = 'tts-offline-v5';
+const CACHE_NAME = 'tts-offline-v6';
 
 const CORE_ASSETS = [
   './',
@@ -87,7 +87,30 @@ function resolveHfFallback(reqUrl) {
   if (urlStr.includes('duration_predictor.onnx')) {
     return 'https://huggingface.co/pnnbao-ump/VieNeu-TTS-v3-Nano/resolve/main/duration_predictor.onnx';
   }
+  if (urlStr.includes('kokoro_vi_wasm_int8.onnx') || urlStr.includes('kokoro_vi.onnx')) {
+    return 'https://huggingface.co/contextboxai/Kokoro-Vietnamese/resolve/main/kokoro_vi.onnx';
+  }
   return null;
+}
+
+async function fetchCombinedParts(basePartUrl, totalParts = 2) {
+  const buffers = [];
+  for (let i = 1; i <= totalParts; i++) {
+    const res = await fetch(`${basePartUrl}.part${i}`);
+    if (!res.ok) throw new Error(`Part ${i} failed`);
+    buffers.push(await res.arrayBuffer());
+  }
+  const totalLength = buffers.reduce((acc, b) => acc + b.byteLength, 0);
+  const merged = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const b of buffers) {
+    merged.set(new Uint8Array(b), offset);
+    offset += b.byteLength;
+  }
+  return new Response(merged, {
+    status: 200,
+    headers: { 'Content-Type': 'application/octet-stream' }
+  });
 }
 
 async function handleFetchRequest(request) {
@@ -119,9 +142,14 @@ async function handleFetchRequest(request) {
 async function fetchAndStore(cache, request) {
   try {
     let networkResponse = await fetch(request);
-    if (!networkResponse || networkResponse.status === 404) {
-      const fallbackUrl = resolveHfFallback(request.url);
-      if (fallbackUrl) networkResponse = await fetch(fallbackUrl);
+    const ct = networkResponse?.headers?.get('content-type') || '';
+    if (!networkResponse || !networkResponse.ok || ct.includes('html')) {
+      if (request.url.includes('kokoro_vi_fast_int8.onnx')) {
+        networkResponse = await fetchCombinedParts(request.url.replace('.onnx', ''));
+      } else {
+        const fallbackUrl = resolveHfFallback(request.url);
+        if (fallbackUrl) networkResponse = await fetch(fallbackUrl);
+      }
     }
     if (networkResponse && networkResponse.status === 200) {
       cache.put(request, networkResponse.clone());
@@ -224,9 +252,14 @@ async function precacheModelAndVoices(client, payload) {
 async function cacheSingleUrl(cache, url, current, total, client) {
   try {
     let res = await fetch(url);
-    if (!res || !res.ok) {
-      const fb = resolveHfFallback(url);
-      if (fb) res = await fetch(fb);
+    const ct = res?.headers?.get('content-type') || '';
+    if (!res || !res.ok || ct.includes('html')) {
+      if (url.includes('kokoro_vi_fast_int8.onnx')) {
+        res = await fetchCombinedParts(url.replace('.onnx', ''));
+      } else {
+        const fb = resolveHfFallback(url);
+        if (fb) res = await fetch(fb);
+      }
     }
     if (res && res.ok) {
       await cache.put(url, res.clone());

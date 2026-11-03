@@ -69,11 +69,43 @@ async function handleLoadModel(payload, id) {
   }
 }
 
+async function fetchKokoroParts() {
+  notifyProgress(1, 2, 'Tải Kokoro INT8 Part 1/2...');
+  const r1 = await fetch('./kokoro_vi_fast_int8.part1');
+  const b1 = await r1.arrayBuffer();
+  notifyProgress(2, 2, 'Tải Kokoro INT8 Part 2/2...');
+  const r2 = await fetch('./kokoro_vi_fast_int8.part2');
+  const b2 = await r2.arrayBuffer();
+  const merged = new Uint8Array(b1.byteLength + b2.byteLength);
+  merged.set(new Uint8Array(b1), 0);
+  merged.set(new Uint8Array(b2), b1.byteLength);
+  return merged.buffer;
+}
+
+async function fetchKokoroBuffer(modelFile) {
+  try {
+    const res = await fetch(`./${modelFile}`);
+    const ct = res.headers.get('content-type') || '';
+    if (res.ok && !ct.includes('html')) return await res.arrayBuffer();
+  } catch (e) {
+    console.warn('[Worker] Direct fetch failed for', modelFile, e);
+  }
+  if (modelFile.includes('kokoro_vi_fast_int8')) {
+    return await fetchKokoroParts();
+  }
+  notifyProgress(1, 1, 'Tải Kokoro từ CDN Hugging Face (310MB)...');
+  const hf = 'https://huggingface.co/contextboxai/Kokoro-Vietnamese/resolve/main/kokoro_vi.onnx';
+  const hfRes = await fetch(hf);
+  if (!hfRes.ok) throw new Error(`HF Kokoro tải lỗi: HTTP ${hfRes.status}`);
+  return await hfRes.arrayBuffer();
+}
+
 async function handleLoadKokoro(payload, id) {
   const modelFile = payload.modelFile || 'kokoro_vi_fast_int8.onnx';
   ort.env.wasm.numThreads = currentThreads;
   const t0 = performance.now();
-  kokoroSession = await ort.InferenceSession.create(`./${modelFile}`, {
+  const modelBuffer = await fetchKokoroBuffer(modelFile);
+  kokoroSession = await ort.InferenceSession.create(modelBuffer, {
     executionProviders: ['wasm'],
     graphOptimizationLevel: 'all',
     enableCpuMemArena: true,

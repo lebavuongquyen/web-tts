@@ -1115,6 +1115,7 @@
 
     // Khởi chạy ngay khi tải trang
     window.addEventListener('DOMContentLoaded', () => {
+      onModelChange();
       updateCacheStatusDisplay();
       onPresetChange();
       loadPhonemeDict();
