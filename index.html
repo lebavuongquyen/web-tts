@@ -801,9 +801,29 @@
       return 0.08;
     }
 
+    let pendingStreamQueue = [];
+    let isStreamQueuePlaying = false;
+    let streamPauseTimer = null;
+
     function queueStreamPcm(samples, chunkIndex, totalChunks, sampleRate = 24000, pauseSec = 0.08) {
+      pendingStreamQueue.push({ samples, chunkIndex, totalChunks, sampleRate, pauseSec });
+      if (!isStreamQueuePlaying) {
+        playNextStreamChunk();
+      }
+      return 1.0;
+    }
+
+    function playNextStreamChunk() {
+      if (pendingStreamQueue.length === 0) {
+        isStreamQueuePlaying = false;
+        log('⏳ [QUEUE] Đã phát xong câu hiện tại, đang chờ nạp câu tiếp theo...');
+        return;
+      }
+      isStreamQueuePlaying = true;
+      const item = pendingStreamQueue.shift();
+      const samples = item.samples;
       smoothEdges(samples, 240);
-      const buffer = audioCtx.createBuffer(1, samples.length, sampleRate);
+      const buffer = audioCtx.createBuffer(1, samples.length, item.sampleRate);
       buffer.copyToChannel(samples, 0);
 
       const source = audioCtx.createBufferSource();
@@ -811,21 +831,30 @@
       source.connect(audioCtx.destination);
       activeSources.push(source);
 
-      const now = audioCtx.currentTime;
-      if (nextPlayTime <= now) {
-        nextPlayTime = now + 0.04;
-      }
-
       source.onended = () => {
-        log(`🔊 [AUDIO] Mệnh đề ${chunkIndex + 1}/${totalChunks} đã hoàn tất trên loa.`);
+        log(`🔊 [AUDIO] Câu ${item.chunkIndex + 1}/${item.totalChunks} đã hoàn tất trên loa.`);
+        const delayMs = Math.max(20, Math.round(item.pauseSec * 1000));
+        clearStreamPauseTimer();
+        streamPauseTimer = setTimeout(() => {
+          streamPauseTimer = null;
+          playNextStreamChunk();
+        }, delayMs);
       };
 
-      source.start(nextPlayTime);
-      nextPlayTime += buffer.duration + pauseSec;
-      return nextPlayTime - now;
+      source.start(0);
+    }
+
+    function clearStreamPauseTimer() {
+      if (streamPauseTimer !== null) {
+        clearTimeout(streamPauseTimer);
+        streamPauseTimer = null;
+      }
     }
 
     function stopAudioPlayback() {
+      clearStreamPauseTimer();
+      pendingStreamQueue = [];
+      isStreamQueuePlaying = false;
       activeSources.forEach((s) => {
         try { s.stop(); } catch (e) {}
       });
@@ -835,7 +864,7 @@
       document.getElementById('btnStopAudio').disabled = true;
       document.getElementById('btnStreamSynthesize').disabled = false;
       document.getElementById('btnStreamSynthesize').innerText = '⚡ 3. Đọc Streaming Ngay Lập Tức (TTFA < 100ms)';
-      log('⏹ Đã dừng phát âm thanh.');
+      log('⏹ Đã dừng phát âm thanh và làm sạch Queue.');
     }
 
     // ==========================================
@@ -904,20 +933,46 @@
         phonesList.push(vieneuDict[w] || w);
       }
       let result = phonesList.join(' ');
-      if (!result.endsWith('.')) result += '.';
+      const tr = clause.trim();
+      if (/[?]$/.test(tr)) {
+        result += '?';
+      } else if (/[!]$/.test(tr)) {
+        result += '!';
+      } else if (/[,;:]$/.test(tr)) {
+        result += ',';
+      } else {
+        result += '.';
+      }
       return result;
     }
 
     function splitTextToClauses(fullText) {
-      const rawParts = fullText.split(/([.,!?;:\n]+)/);
-      const clauses = [];
+      const rawSentences = fullText.split(/([.!?…\n]+)/);
+      const sentences = [];
       let temp = '';
-      for (let i = 0; i < rawParts.length; i++) {
-        temp += rawParts[i];
-        if (i % 2 === 1 || i === rawParts.length - 1) {
+      for (let i = 0; i < rawSentences.length; i++) {
+        temp += rawSentences[i];
+        if (i % 2 === 1 || i === rawSentences.length - 1) {
           const trimmed = temp.trim();
-          if (trimmed) clauses.push(trimmed);
+          if (trimmed) sentences.push(trimmed);
           temp = '';
+        }
+      }
+      const clauses = [];
+      for (const s of sentences) {
+        if (s.length > 200 && s.includes(',')) {
+          const parts = s.split(/(,)/);
+          let sub = '';
+          for (let j = 0; j < parts.length; j++) {
+            sub += parts[j];
+            if (j % 2 === 1 || j === parts.length - 1) {
+              const tr = sub.trim();
+              if (tr) clauses.push(tr);
+              sub = '';
+            }
+          }
+        } else {
+          clauses.push(s);
         }
       }
       return clauses.length ? clauses : [fullText.trim()];

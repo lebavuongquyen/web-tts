@@ -18,3 +18,7 @@ trained_models/
 *.log
 .DS_Store
 __pycache__/
+*.bak
+*.bak*
+vieneu_fp16/
+**/vieneu_fp16/

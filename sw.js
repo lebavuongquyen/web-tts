@@ -3,7 +3,7 @@
 // Đảm bảo Web Client hoạt động 100% OFFLINE, 0 CẦN GỌI BẤT KỲ API NÀO.
 // ==============================================================================
 
-const CACHE_NAME = 'tts-offline-v6';
+const CACHE_NAME = 'tts-offline-v7';
 
 const CORE_ASSETS = [
   './',
