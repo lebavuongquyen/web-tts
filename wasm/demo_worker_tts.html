@@ -679,10 +679,19 @@
     // 2. Quản lý Web Worker (AI Background Execution)
     // ==========================================
     function initDedicatedWorker() {
-      if (window.Worker) {
+      if (!window.Worker) {
+        log('❌ Trình duyệt không hỗ trợ Web Worker!');
+        return;
+      }
+      try {
+        if (ttsWorker) ttsWorker.terminate();
         ttsWorker = new Worker('./tts-worker.js');
         ttsWorker.onmessage = onWorkerMessage;
-        ttsWorker.onerror = (err) => log(`❌ Lỗi Web Worker: ${err.message}`);
+        ttsWorker.onerror = (err) => {
+          console.error('[Web Worker Error Event]', err);
+          const detail = err.message || (err.filename ? `${err.filename}:${err.lineno}:${err.colno}` : '') || err.error?.message || err.type || 'Lỗi không xác định';
+          log(`❌ Lỗi Web Worker: ${detail}`);
+        };
 
         const hwThreads = navigator.hardwareConcurrency || 8;
         const optimal = Math.min(Math.max(hwThreads - 2, 4), 8);
@@ -693,8 +702,8 @@
           payload: { threads: optimal }
         });
         log(`✓ Khởi tạo Web Worker thành công: Đang sử dụng ${optimal} luồng CPU ngầm.`);
-      } else {
-        log('❌ Trình duyệt không hỗ trợ Web Worker!');
+      } catch (e) {
+        log(`❌ Không thể khởi tạo Web Worker: ${e.message}`);
       }
     }
 

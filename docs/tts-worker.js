@@ -4,7 +4,23 @@
 // ==============================================================================
 
 /* global ort */
-importScripts("./ort.min.js");
+try {
+  importScripts("./ort.min.js");
+} catch (e) {
+  console.error("[Worker] Lỗi nạp ort.min.js:", e);
+}
+
+self.onerror = (e) => {
+  console.error("[Worker Unhandled Error]", e);
+  const msg = typeof e === "string" ? e : (e?.message || "Lỗi runtime trong Web Worker");
+  self.postMessage({ type: "WORKER_ERROR", action: "GLOBAL", message: msg });
+};
+
+self.onunhandledrejection = (e) => {
+  console.error("[Worker Unhandled Rejection]", e?.reason);
+  const msg = e?.reason?.message || String(e?.reason || "Promise rejection");
+  self.postMessage({ type: "WORKER_ERROR", action: "PROMISE", message: msg });
+};
 
 let currentThreads = 1;
 let activeEngine = "vieneu"; // 'kokoro' | 'vieneu'
@@ -43,6 +59,10 @@ self.onmessage = async (e) => {
 };
 
 function handleInitConfig(payload) {
+  if (typeof ort === "undefined") {
+    console.error("[Worker] ort chưa sẵn sàng");
+    return;
+  }
   const canThread = typeof SharedArrayBuffer !== "undefined" && self.crossOriginIsolated;
   currentThreads = canThread ? (payload?.threads || 4) : 1;
   ort.env.wasm.simd = true;

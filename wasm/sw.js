@@ -3,13 +3,12 @@
 // Đảm bảo Web Client hoạt động 100% OFFLINE, 0 CẦN GỌI BẤT KỲ API NÀO.
 // ==============================================================================
 
-const CACHE_NAME = 'tts-offline-v7';
+const CACHE_NAME = 'tts-offline-v8';
 
 const CORE_ASSETS = [
   './',
   './index.html',
   './demo_worker_tts.html',
-  './test_kokoro_wasm.html',
   './tts-worker.js',
   './vi_phoneme_dict.json',
   './ort.min.js',
@@ -17,7 +16,8 @@ const CORE_ASSETS = [
   './ort-wasm-simd-threaded.wasm',
   './vieneu/dict.json',
   './vieneu/config.json',
-  './vieneu/constants.json'
+  './vieneu/constants.json',
+  './vieneu/voices.json'
 ];
 
 self.addEventListener('install', (event) => {
@@ -65,7 +65,9 @@ function addCoopCoepHeaders(response) {
   }
   const headers = new Headers(response.headers);
   headers.set('Cross-Origin-Opener-Policy', 'same-origin');
-  headers.set('Cross-Origin-Embedder-Policy', 'require-corp');
+  headers.set('Cross-Origin-Embedder-Policy', 'credentialless');
+  headers.set('Cross-Origin-Resource-Policy', 'cross-origin');
+  headers.set('Access-Control-Allow-Origin', '*');
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
@@ -124,7 +126,7 @@ async function handleFetchRequest(request) {
         cache.put(request, netRes.clone());
         return addCoopCoepHeaders(netRes);
       }
-      return netRes;
+      return addCoopCoepHeaders(netRes);
     } catch (err) {
       const cached = await cache.match(request);
       if (cached) return addCoopCoepHeaders(cached);
@@ -134,9 +136,10 @@ async function handleFetchRequest(request) {
 
   const cachedResponse = await cache.match(request);
   if (cachedResponse) {
-    return cachedResponse;
+    return addCoopCoepHeaders(cachedResponse);
   }
-  return fetchAndStore(cache, request);
+  const netRes = await fetchAndStore(cache, request);
+  return addCoopCoepHeaders(netRes);
 }
 
 async function fetchAndStore(cache, request) {
